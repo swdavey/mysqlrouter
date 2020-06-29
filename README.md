@@ -24,7 +24,7 @@ An alternative is to use standard clustering technologies and approaches. For ex
 ### Test Setup
 In order to represent a production deployment the follwing architectural topology was created in a single virtual network in the Oracle Cloud.
 
-![GitHub Logo] (/testTopology.png "Test Topology") 
+![GitHub Logo] (https://github.com/swdavey/mysqlrouter/testTopology.png) 
 
 * Front End
   * Comprising a single virtual machine working as a client sending cURL requests to the application tier and receiving responses accordingly.
