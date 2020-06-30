@@ -21,43 +21,36 @@ An alternative is to use standard clustering technologies and approaches. For ex
 
 ## How to Create a HA Tier of MySQL Routers on Linux
 
-### Test Setup
-In order to represent a production deployment the follwing architectural topology was created in a single virtual network in the Oracle Cloud.
+### MySQL Router Tier Description
+A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. Each node was an Oracle Compute Instance (i.e. a Virtual Machine) with the following stack:
 
-
-* Front End
-  * Comprising a single virtual machine working as a client sending cURL requests to the application tier and receiving responses accordingly.
-  * MySQL 8.0.20 was installed in order to test the HA implementation of MySQL Router without having to go via the application server. In production this would not be required.
-* Application Tier
-  * Comprising a single virtual machine that hosts a RESTful Java application running in a JBoss Wildfly applicaton server. The application accepts the cURL requests from the client and in order to service these requests connects to the database tier via the highly available router tier. 
-* Router Tier
-  * Comprising three virtual machines each running MySQL Router in a highly available cluster; effectively the system under test.
-  * Virtual machine specification: 1 core OCPU, 16 GB memory, 1 Gbps network bandwidth, 50GB storage
+  * Virtual machine specification: 1 core OCPU, 16 GB memory, 1 Gbps network bandwidth, nom 50GB storage
   * OS: Oracle Linux 7.8, kernel rev 4.14.35-1902.303.4.1.el7uek.x86_64
   * MySQL Router 8.0.20
-  * MySQL Shell 8.0.20 (used to test router connectivity - could be removed if required)
-  * Pacemaker 
-* Database Tier
-  * Comprising three virtual machines 
-  * OS: Oracle Linux 7.8, kernel rev 4.14.35-1902.303.4.1.el7uek.x86_64
-  * MySQL Server 8.0.20
-  * MySQL Shell 8.0.20 (required to administer MySQL InnoDB Cluster)
-
+  * MySQL Shell 8.0.20 (optional - used to test router connectivity)
+  * Pacemaker 1.1.21
+  
 Notes: 
 1. Oracle Linux is a variant of Red Hat Enterprise Linux and as such it is expected that implementing a HA MySQL Router tier on either Red Hat, Centos or Fedora operating systems will work.
 2. The Ubuntu OS also has a Pacemaker implementation and so it is assumed that this will also work.
-3. Oracle Cloud: a small amount of additional integration work was required in order for the solution to work with Oracle Cloud's virtual network. This is detailed at the end of this document. It is anticipated that no additional work would be required with physical servers. Depending on how virtual networking is implemented by other cloud vendors there may be some similar work required. 
+3. Oracle Cloud: a small amount of additional integration work was required in order for the solution to work with Oracle Cloud's virtual network. This is detailed at the end of this document. It is anticipated that **no additional work** would be required with physical servers. Depending on how virtual networking is implemented by other cloud vendors there may be some similar work required. 
 
-### Software Install of the Router Tier
-Either the Enterprise or Community editions of MySQL software can be used. In 
-The RPM packages for MySQL are the commercial versions (enterprise edition) and were downloaded prior to install.
+### Software Install of the MySQL Router Tier
+Either the Enterprise or Community editions of MySQL software can be used. In the case below the RPM packages for MySQL are the commercial versions (enterprise edition) and were downloaded prior to install. Pacemaker and its associated packages are all available from Oracle-Linux/Redhat/Centos/Fedora repositories as standard.
 
 ```
-
+% sudo yum localinstall --nogpgcheck mysql-router-commercial-8.0.20-1.1.el7.x86_64.rpm
+% sudo yum localinstall --nogpgcheck mysql-shell-commercial-8.0.20-1.1.el7.x86_64.rpm
+% sudo yum install pcs pacemaker resource-agents
 ```
 
 
 ### Security: firewalld and selinux
+
+### Testing
+
+The test infrastructure is detailed in the diagram below:
+![](../master/images/testTopology.png)
 
 ### Oracle Cloud Specifics
 
