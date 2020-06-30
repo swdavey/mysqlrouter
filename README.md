@@ -17,11 +17,12 @@ To overcome the issue of deploying MySQL Router on large numbers of application 
 
 One method documented by MySQL is to use DNS-SRV records in conjuction with software such as Consul and dnsmasq. In practice this is difficult to implement and given it requires changes to DNS configurations is likely to be resisted in production environments.
 
-An alternative is to use standard clustering technologies and approaches. For example: software that manages cluster membership and failover; a floating IP address such that client software has a consistent point of attachment. The remainder of this document details how this can be achieved on Linux servers. 
+An alternative is to use standard clustering technologies and approaches. For example: software that manages cluster membership and failover; a floating IP address such that client software has a consistent point of attachment. The remainder of this document details how this can be achieved on Linux servers using Pacemaker (Linux clusterware).
 
 ## How to Create a HA Tier of MySQL Routers on Linux
+The following details the stack and the operations needed to create a HA Cluster of MySQL Routers, as well as the testing conducted.
 
-### MySQL Router Tier Description
+### MySQL Router Tier Stack
 A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. Each node was an Oracle Compute Instance (i.e. a Virtual Machine) with the following stack:
 
   * Virtual machine specification: 1 core OCPU, 16 GB memory, 1 Gbps network bandwidth, nom 50GB storage
