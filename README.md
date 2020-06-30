@@ -39,14 +39,75 @@ Notes:
 ### Software Install of the MySQL Router Tier
 Either the Enterprise or Community editions of MySQL software can be used. In the case below the RPM packages for MySQL are the commercial versions (enterprise edition) and were downloaded prior to install. Pacemaker and its associated packages are all available from Oracle-Linux/Redhat/Centos/Fedora repositories as standard.
 
+Install the software as shown below on **all nodes** in the router tier.
 ```
 % sudo yum localinstall --nogpgcheck mysql-router-commercial-8.0.20-1.1.el7.x86_64.rpm
 % sudo yum localinstall --nogpgcheck mysql-shell-commercial-8.0.20-1.1.el7.x86_64.rpm
 % sudo yum install pcs pacemaker resource-agents
 ```
-
+For information: the install of the above software will see the creation of three accounts:
+```
+% tail -3 /etc/passwd
+tss:x:59:59:Account used by the trousers package to sandbox the tcsd daemon:/dev/null:/sbin/nologin
+hacluster:x:189:189:cluster user:/home/hacluster:/sbin/nologin
+mysqlrouter:x:995:991:MySQL Router:/var/lib/mysqlrouter:/bin/false
+%
+```
 
 ### Security: firewalld and selinux
+In order for application servers and other clients to connect to a MySQL Router the following ports need to be opened:
+ * 6446/tcp - SQL protocol for read-write connections
+ * 6447/tcp - SQL protocol for read-only connections
+ * 64460/tcp - X protocol (for XDevAPI Document Store users) for read-write connections (this also allows SQL sessions)
+ * 64470/tcp - X protocol (for XDevAPI Document Store users) for read-only connections (this also allows SQL sessions).
+ 
+Pacemaker needs to communicate between the nodes using a variety of ports for both TCP and UDP protocols. Fortunately, Pacemaker is a well known package and the Linux firewall can be opened appropriately if the high-availability service is specified. 
+
+On each node of the MySQL Router tier run the following commands:
+```
+% sudo firewall-cmd --zone=public --add-port=6446/tcp --permanent
+% sudo firewall-cmd --zone=public --add-port=6447/tcp --permanent
+% sudo firewall-cmd --zone=public --add-port=64460/tcp --permanent
+% sudo firewall-cmd --zone=public --add-port=64470/tcp --permanent
+% sudo firewall-cmd --permanent --add-service=high-availability
+% sudo systemctl restart firewalld
+% sudo firewall-cmd --list-ports
+6446/tcp 64460/tcp 6447/tcp 64470/tcp
+% sudo firewall-cmd --list-services
+dhcpv6-client high-availability ssh
+%
+```
+Note the last two commands confirm that the ports have been opened and the high-availability service is in place.
+
+For simplicity we will put selinux into permissive mode. Do this on **all nodes** of the router tier
+```
+% ### Check to see what selinux mode you are in
+% getenforce
+enforcing
+% ### If getenforce returns disabled or permissive then you are good to go, 
+% ### however, if it reports enforcing you will need to edit the SELINUX= setting to permissive.
+% ### If you do not like vim or nano, then use sed as shown:
+% sudo sed --in-place=.bak 's/^SELINUX=.*$/SELINUX=permissive/' /etc/selinux/config
+% ### Check that the config file looks the same as that detailed below.
+% cat /etc/selinux/config
+# This file controls the state of SELinux on the system.
+# SELINUX= can take one of these three values:
+#     enforcing - SELinux security policy is enforced.
+#     permissive - SELinux prints warnings instead of enforcing.
+#     disabled - No SELinux policy is loaded.
+SELINUX=permissive
+# SELINUXTYPE= can take one of three values:
+#     targeted - Targeted processes are protected,
+#     minimum - Modification of targeted policy. Only selected processes are protected.
+#     mls - Multi Level Security protection.
+SELINUXTYPE=targeted
+
+% ### If it does not then the sed command should have created a copy of the original - /etc/selinux/config.bak
+% ### Copy this back to /etc/selinux/config and correct the error accordingly.
+% ###
+% ### Assuming there are no errors, reboot the node
+% sudo reboot
+```
 
 ### Testing
 
