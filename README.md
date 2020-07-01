@@ -19,8 +19,8 @@ One method documented by MySQL is to use DNS-SRV records in conjuction with soft
 
 An alternative is to use standard clustering technologies and approaches. For example: software that manages cluster membership and failover; a floating IP address such that client software has a consistent point of attachment. The remainder of this document details how this can be achieved on Linux servers using Pacemaker (Linux clusterware).
 
-## How to Create a HA Tier of MySQL Routers on Linux
-The following details the stack and the operations needed to create a HA Cluster of MySQL Routers, as well as the testing conducted.
+## Test Environment
+The diagram below details the test environment upon which this document is based. Given the purpose of this document is to discuss how to create a highly available MySQL Router tier only that element will be discussed in detail and the other components will only be mentioned in support of that aim.
 
 ### MySQL Router Tier Stack
 A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. Each node was an Oracle Compute Instance (i.e. a Virtual Machine) with the following stack:
@@ -32,9 +32,9 @@ A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. E
   * Pacemaker 1.1.21
   
 Notes: 
-1. Oracle Linux is a variant of Red Hat Enterprise Linux and as such it is expected that implementing a HA MySQL Router tier on either Red Hat, Centos or Fedora operating systems will work.
+1. Oracle Linux is a variant of Red Hat Enterprise Linux and as such it is expected that implementing a HA MySQL Router tier on either Red Hat, Centos or Fedora operating systems will work if configured in the same manner.
 2. The Ubuntu OS also has a Pacemaker implementation and so it is assumed that this will also work.
-3. Oracle Cloud: a small amount of additional integration work was required in order for the solution to work with Oracle Cloud's virtual network. This is detailed at the end of this document. It is anticipated that **no additional work** would be required with physical servers. Depending on how virtual networking is implemented by other cloud vendors there may be some similar work required. 
+3. Oracle Cloud: a small amount of additional integration work was required in order for the solution to work with Oracle Cloud's virtual network. This is detailed at the end of this document. It is anticipated that **no additional work** would be required with physical servers. Depending on how virtual networking is implemented in other cloud there may be some similar work required. 
 
 ### Software Install of the MySQL Router Tier
 Either the Enterprise or Community editions of MySQL software can be used. In the case below the RPM packages for MySQL are the commercial versions (enterprise edition) and were downloaded prior to install. Pacemaker and its associated packages are all available from Oracle-Linux/Redhat/Centos/Fedora repositories as standard.
@@ -79,35 +79,55 @@ dhcpv6-client high-availability ssh
 ```
 Note the last two commands confirm that the ports have been opened and the high-availability service is in place.
 
-For simplicity we will put selinux into permissive mode. Do this on **all nodes** of the router tier
-```
-% ### Check to see what selinux mode you are in
-% getenforce
-enforcing
-% ### If getenforce returns disabled or permissive then you are good to go, 
-% ### however, if it reports enforcing you will need to edit the SELINUX= setting to permissive.
-% ### If you do not like vim or nano, then use sed as shown:
-% sudo sed --in-place=.bak 's/^SELINUX=.*$/SELINUX=permissive/' /etc/selinux/config
-% ### Check that the config file looks the same as that detailed below.
-% cat /etc/selinux/config
-# This file controls the state of SELinux on the system.
-# SELINUX= can take one of these three values:
-#     enforcing - SELinux security policy is enforced.
-#     permissive - SELinux prints warnings instead of enforcing.
-#     disabled - No SELinux policy is loaded.
-SELINUX=permissive
-# SELINUXTYPE= can take one of three values:
-#     targeted - Targeted processes are protected,
-#     minimum - Modification of targeted policy. Only selected processes are protected.
-#     mls - Multi Level Security protection.
-SELINUXTYPE=targeted
+No change to the selinux mode (enforcing | permissive | disabled) is required because the cluster is stateless (no need for fencing and split brain is not an issue).
 
-% ### If it does not then the sed command should have created a copy of the original - /etc/selinux/config.bak
-% ### Copy this back to /etc/selinux/config and correct the error accordingly.
-% ###
-% ### Assuming there are no errors, reboot the node
-% sudo reboot
+### Naming Services
+The test environment uses DNS (part of the Oracle Cloud) to resolve hostnames into IP addresses. If you don't have a naming service then you will have to enter the names and IP addresses of each router node and indeed each database node into /etc/hosts. Clients of the router tier will need to be made aware of the floating IP address.
+
+### Bootstrapping of MySQL Router
+To bootstrap the cluster we need to be aware of the backend database cluster or replica set being used. In this case a 3 node InnoDB Cluster is being used. It's Primary node is called ic1 and it's cluster administrator user account is clustadm@ic1. For each node in the MySQL Router cluster, run the following
 ```
+% sudo mysqlrouter --user mysqlrouter --force --bootstrap clusteradm@ic1
+% sudo systemctl restart mysqlrouter
+```
+### Test MySQL Router Instance Connectivity
+On the **primary node** of the InnoDB Cluster:
+ * create a document store schema and give it a collection
+ * create a database and give it a table
+ * create a user and grant that user select, insert, update and delete on both the schema and database. Note the user should be able to log in from anywhere.
+
+For example:
+```
+% hostname
+ic1
+% mysqlsh
+ MySQL  JS > \c root@localhost
+ MySQL  localhost:33060+ ssl  JS > var schema = session.createSchema('ancestors')
+ MySQL  localhost:33060+ ssl  JS > var col = schema.createCollection('flintstones')
+ MySQL  localhost:33060+ ssl  JS > \sql
+ MySQL  localhost:33060+ ssl  SQL > create database routertest;
+ MySQL  localhost:33060+ ssl  SQL > use routertest;
+ MySQL  localhost:33060+ ssl  routertest  SQL > create table t1 (
+                                             -> id int auto_increment primary key,
+                                             -> name char(20)
+                                             -> );
+ MySQL  localhost:33060+ ssl  routertest  SQL > create user stuart@'%' identified by 'MyPa55wd!';
+ MySQL  localhost:33060+ ssl  routertest  SQL > grant select, insert, update, delete on routertest.* to stuart@'%';
+ MySQL  localhost:33060+ ssl  routertest  SQL > grant select, insert, update, delete on ancestors.* to stuart@'%';
+ MySQL  localhost:33060+ ssl  routertest  SQL > \q
+%
+```
+
+Log on to each MySQL Router instance in turn and perform the following tests:
+ 1. Log in on port 6446 (SQL only connection - RW access)
+  a. Check the database host - it should be the primary
+  b. Attempt to access the Document Store schema - it should be denied
+  c. Switch to SQL and use the routertest database - add a row to it, and then query it
+  d. Log out
+ 2. Log in on port 6447 (SQL only connection - RO access) 
+
+
+### Configuration of Cluster
 
 ### Testing
 
