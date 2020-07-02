@@ -119,7 +119,7 @@ ic1
 ```
 
 On **each node** of the **MySQL Router tier**, perform these tests
-```
+```diff
 Using MySQL shell as a local client connect to the database using each of the MySQL Router ports: 6446 (SQL RW), 6447 (SQL RO), 64460 (X protocol RW), 66470 (X protocol RO)
 % hostname
 rt1
@@ -127,9 +127,10 @@ rt1
 Please provide the password for 'stuart@localhost:6446': *********
  MySQL  localhost:6446 ssl  JS >
 
- Test 1: Toggle to SQL and check which node of the InnoDB Cluster we are connected to. 
-         For connections on ports 6446 and 64460 we should be on the Primary node (RW)
-         For connections on ports 6447 and 64470 we should be on one of the Secondary nodes (RO)
+@@ Test 1: Toggle to SQL and check which node of the InnoDB Cluster we are connected to. 
+@@         For connections on ports 6446 and 64460 we should be on the Primary node (RW)
+@@         For connections on ports 6447 and 64470 we should be on one of the Secondary nodes (RO)
+
  MySQL  localhost:6446 ssl  SQL > select @@hostname;
 +------------+
 | @@hostname |
@@ -139,9 +140,9 @@ Please provide the password for 'stuart@localhost:6446': *********
 1 row in set (0.0002 sec)
  MySQL  localhost:6446 ssl  SQL >
  
- Test 2: Toggle to JavaScript and check whether you can connect to Document Store.
-         Only connections on the X Protocol ports 64460 and 64470 should be allowed connections
-         Connections on classic SQL ports (6446 and 6447) will receive error messages
+~ Test 2: Toggle to JavaScript and check whether you can connect to Document Store.
+~         Only connections on the X Protocol ports 64460 and 64470 should be allowed connections
+~         Connections on classic SQL ports (6446 and 6447) will receive error messages
  MySQL  localhost:6446 ssl  SQL > \js
 Switching to JavaScript mode...
  MySQL  localhost:6446 ssl  JS > var schema = session.getSchema("ancestors")
