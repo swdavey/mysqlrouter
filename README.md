@@ -213,18 +213,86 @@ Now start the pcsd service **on each MySQL Router node** in order that we can cr
 % sudo systemctl enable pcsd.service
 ```
 
-With the pcsd service running on each node, we can create the cluster. Firstly, set up authentication between the nodes using the hacluster user, then create the cluster and finally start it
+With the pcsd service now running on each node, we can create the cluster. Firstly, set up authentication between the nodes using the hacluster user, then create the cluster and finally start it. On **one node of the cluster**:
 ```
-% sudo pcs cluster auth rt1 rt2 rt3 -u hacluster -p MyPa55wd! --force
-% sudo pcs cluster setup --force --name mysqlroutercluster rt1 rt2 rt3
+% sudo pcs cluster auth rt1 rt2 rt3 -u hacluster -p MyPa55wd!
+rt1: Authorized
+rt2: Authorized
+rt3: Authorized
+% sudo pcs cluster setup --name mysqlroutercluster rt1 rt2 rt3    
+Destroying cluster on nodes: mrt1, mrt2...
+rt1: Stopping Cluster (pacemaker)...
+rt2: Stopping Cluster (pacemaker)...
+rt3: Stopping Cluster (pacemaker)...
+rt1: Successfully destroyed cluster
+rt2: Successfully destroyed cluster
+rt3: Successfully destroyed cluster
+
+Sending 'pacemaker_remote authkey' to 'mrt1', 'mrt2'
+rt1: successful distribution of the file 'pacemaker_remote authkey'
+rt2: successful distribution of the file 'pacemaker_remote authkey'
+rt3: successful distribution of the file 'pacemaker_remote authkey'
+Sending cluster config files to the nodes...
+rt1: Succeeded
+rt2: Succeeded
+rt3: Succeeded
+
+Synchronizing pcsd certificates on nodes mrt1, mrt2...
+rt1: Success
+rt2: Success
+rt3: Success
+Restarting pcsd on the nodes in order to reload the certificates...
+rt1: Success
+rt2: Success
+rt3: Success
+
 % sudo pcs cluster start --all
+rt1: Starting Cluster (corosync)...
+rt2: Starting Cluster (corosync)...
+rt3: Starting Cluster (corosync)...
+rt1: Starting Cluster (pacemaker)...
+rt2: Starting Cluster (pacemaker)...
+rt3: Starting Cluster (pacemaker)...
+%
 ```
-Give the cluster a few seconds to establish itself and then check its status
+Give the cluster ~30 seconds to establish itself and then check its status. All the nodes must be online. 
 ```
 % sudo pcs status
-```
-Note that the cluster can be monitored from any node using either the status command as shown or crm_mon. If crm_mon is run then it will act as a console and continue to be updated. An alternative usage is to specify the number of times you want it to sample before exiting. For example to take a snapshot you would specify "one" as follows: crm_mon -1
+Cluster name: mysqlroutercluster
 
+WARNINGS:
+No stonith devices and stonith-enabled is not false
+
+Stack: corosync
+Current DC: rt1 (version 1.1.21-4.el7-f14e36fd43) - partition with quorum
+Last updated: Thu Jul  2 13:51:38 2020
+Last change: Thu Jul  2 13:51:38 2020 by hacluster via crmd on rt1
+
+3 nodes configured
+0 resources configured
+
+Online: [ rt1 rt2 rt3 ]
+
+No resources
+
+
+Daemon Status:
+  corosync: active/disabled
+  pacemaker: active/disabled
+  pcsd: active/enabled
+%
+```
+Some points to note:
+* The cluster can be monitored from any node using either the status command as shown or crm_mon. If crm_mon is run then it will act as a console and continue to be updated. An alternative usage is to specify the number of times you want it to sample before exiting. For example to take a snapshot you would specify "one" as follows: crm_mon -1
+* From the above status output we can see that we have a cluster but no resources are configured. Configuring resources will be one of next steps.
+* We can also see that both pacemaker and corosync daemons are active/disabled. All this means is that these daemons are running (under systemd) but they have not been enabled to allow systemd to restart them upon reboot, etc.
+
+For our cluster we need to set some properties:
+```
+% sudo pcs property set no-quorum-policy=ignore
+% sudo pcs property set stonith-enabled=false
+% sudo resource defaults migration-threshold=1
+```
 
 ### Testing
 
