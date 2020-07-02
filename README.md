@@ -22,6 +22,14 @@ An alternative is to use standard clustering technologies and approaches. For ex
 ## Test Environment
 The diagram below details the test environment upon which this document is based. Given the purpose of this document is to discuss how to create a highly available MySQL Router tier only that element will be discussed in detail and the other components will only be mentioned in support of that aim.
 
+The architectural reasoning behind the above topology is:
+1. A desire to test on something that closely approximates production.
+2. The number of nodes in the router tier was set at three which would mean the cluster would still be highly available even if a node was taken down for maintenance.
+3. The number of nodes in the database tier (InnoDB Cluster) was set as three which is the minimum required as well as being the most common implementation.
+4. MySQL Shell was used for preliminary testing on the router tier in order to establish that the routers were working correctly prior to adding the clusterware.
+5. MySQL Shell was used for preliminary testing on the client tier in order to prove that the router tier was accepting remote connections and routing them through to the datbase tier.
+6. A true application server hosting a Java application was used because in production connections will typically be from such servers and not MySQL shell.
+
 ### MySQL Router Tier Stack
 A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. Each node was an Oracle Compute Instance (i.e. a Virtual Machine) with the following stack:
 
@@ -205,12 +213,19 @@ Now start the pcsd service **on each MySQL Router node** in order that we can cr
 % sudo systemctl enable pcsd.service
 ```
 
-With the pcsd service running on each node, we can create the cluster. Firstly, set up authentication between the nodes then create the cluster and finally start it
+With the pcsd service running on each node, we can create the cluster. Firstly, set up authentication between the nodes using the hacluster user, then create the cluster and finally start it
 ```
 % sudo pcs cluster auth rt1 rt2 rt3 -u hacluster -p MyPa55wd! --force
 % sudo pcs cluster setup --force --name mysqlroutercluster rt1 rt2 rt3
 % sudo pcs cluster start --all
 ```
+Give the cluster a few seconds to establish itself and then check its status
+```
+% sudo pcs status
+```
+Note that the cluster can be monitored from any node using either the status command as shown or crm_mon. If crm_mon is run then it will act as a console and continue to be updated. An alternative usage is to specify the number of times you want it to sample before exiting. For example to take a snapshot you would specify "one" as follows: crm_mon -1
+
+
 ### Testing
 
 The test infrastructure is detailed in the diagram below:
