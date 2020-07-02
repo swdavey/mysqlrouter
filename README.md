@@ -91,7 +91,7 @@ To bootstrap the cluster we need to be aware of the backend database cluster or 
 % sudo systemctl restart mysqlrouter
 ```
 ### Test MySQL Router Instance Connectivity
-On the **primary node** of the InnoDB Cluster:
+On the **primary node** of the **InnoDB Cluster**:
  * create a document store schema and give it a collection
  * create a database and give it a table
  * create a user and grant that user select, insert, update and delete on both the schema and database. Note the user should be able to log in from anywhere.
@@ -118,17 +118,99 @@ ic1
 %
 ```
 
-Log on to each MySQL Router instance in turn and perform the following tests:
- 1. Log in on port 6446 (SQL only connection - RW access)
-  a. Check the database host - it should be the primary
-  b. Attempt to access the Document Store schema - it should be denied
-  c. Switch to SQL and use the routertest database - add a row to it, and then query it
-  d. Log out
- 2. Log in on port 6447 (SQL only connection - RO access) 
+On **each node** of the **MySQL Router tier**, perform these tests
+```
+Using MySQL shell as a local client connect to the database using each of the MySQL Router ports: 6446 (SQL RW), 6447 (SQL RO), 64460 (X protocol RW), 66470 (X protocol RO)
+% hostname
+rt1
+% mysqlsh --uri stuart@localhost:6446         # Change port to 6447, 64460 and 64470 as required
+Please provide the password for 'stuart@localhost:6446': *********
+ MySQL  localhost:6446 ssl  JS >
 
+ Test 1: Toggle to SQL and check which node of the InnoDB Cluster we are connected to. 
+         For connections on ports 6446 and 64460 we should be on the Primary node (RW)
+         For connections on ports 6447 and 64470 we should be on one of the Secondary nodes (RO)
+ MySQL  localhost:6446 ssl  SQL > select @@hostname;
++------------+
+| @@hostname |
++------------+
+| ic1        |
++------------+
+1 row in set (0.0002 sec)
+ MySQL  localhost:6446 ssl  SQL >
+ 
+ Test 2: Toggle to JavaScript and check whether you can connect to Document Store.
+         Only connections on the X Protocol ports 64460 and 64470 should be allowed connections
+         Connections on classic SQL ports (6446 and 6447) will receive error messages
+ MySQL  localhost:6446 ssl  SQL > \js
+Switching to JavaScript mode...
+ MySQL  localhost:6446 ssl  JS > var schema = session.getSchema("ancestors")
+Invalid object member getSchema (AttributeError)
+ MySQL  localhost:6446 ssl  JS >
+ 
+ Test 3: If the schema object was obtained in test 2, access its collection and then add a document to it.
+         This cannot be done for connections on classic SQL ports (6446 and 6447) given they won't have been able to create the schema object.
+         This test will work in its entirety for connections on 64460 because they are read-write. 
+         Connections on port 64470 will only be able to do the query part (i.e. the find()) because connections on this port are read-only
+ MySQL  localhost:64460+ ssl  JS > var collection = schema.getCollection("flintstones")
+ MySQL  localhost:64460+ ssl  JS > collection.add({"name": "Fred", "type": "Early Human"})
+Query OK, 1 item affected (0.0062 sec)
+ MySQL  localhost:64460+ ssl  JS > collection.find()
+{
+    "_id": "00005ef4b9130000000000000001",
+    "name": "Fred",
+    "type": "Early Human"
+}
+1 document in set (0.0005 sec)
+ MySQL  localhost:64460+ ssl  JS >
 
-### Configuration of Cluster
+Test 4: Toggle to SQL mode and use the routertest database
+        This will work for all port types
+ MySQL  localhost:6446 ssl  JS > \sql
+ MySQL  localhost:6446 ssl  SQL > use routertest;
+Default schema set to `routertest`.
+Fetching table and column names from `routertest` for auto-completion... Press ^C to stop.
+ MySQL  localhost:6446 ssl  routertest  SQL >
+ 
+ Test 5: Insert a row to routertest's table, then query it
+         This test will work in its entirety for connections using ports 6446 and 64460 because they are read-write
+         Connections using ports 6447 and 64470 will not be able to do the insert but will be able to do the query because they are read-only
+ MySQL  localhost:6446 ssl  routertest  SQL > insert into t1 (name) values ("Stuart");
+Query OK, 1 row affected (0.0058 sec)
+ MySQL  localhost:6446 ssl  routertest  SQL > select * from t1;
++----+--------+
+| id | name   |
++----+--------+
+|  1 | stuart |
++----+--------+
+1 row in set (0.0005 sec)
+ MySQL  localhost:6446 ssl  routertest  SQL > \q
 
+Now repeat the above until all MySQL Router nodes and ports have been tested.
+```
+
+### Setup and Configure the Pacemaker Cluster
+Set the password for the hacluster user account **on each of the MySQL Router nodes**:
+```
+% sudo passwd hacluster
+New password: 
+Retype new password:
+passwd: all authentication tokens updated successfully.
+```
+In the example above the password used was MyPa55wd! - this will be use when we come to create the cluster.
+
+Now start the pcsd service **on each MySQL Router node** in order that we can create the cluster. Assuming the start is successful then enable the service so that it automatically restarts on a reboot. 
+```
+% sudo systemctl start pcsd.service
+% sudo systemctl enable pcsd.service
+```
+
+With the pcsd service running on each node, we can create the cluster. Firstly, set up authentication between the nodes then create the cluster and finally start it
+```
+% sudo pcs cluster auth rt1 rt2 rt3 -u hacluster -p MyPa55wd! --force
+% sudo pcs cluster setup --force --name mysqlroutercluster rt1 rt2 rt3
+% sudo pcs cluster start --all
+```
 ### Testing
 
 The test infrastructure is detailed in the diagram below:
