@@ -118,14 +118,6 @@ ic1
 %
 ```
 
-```diff
-- text in red
-+ text in green
-! text in orange
-# text in gray
-@@ text in purple (and bold)@@
-```
-
 On **each node** of the **MySQL Router tier**, perform these tests
 ```diff
 Using MySQL shell as a local client connect to the database using each of the MySQL Router ports: 6446 (SQL RW), 6447 (SQL RO), 64460 (X protocol RW), 66470 (X protocol RO)
@@ -138,7 +130,6 @@ rt1
 - Test 1: Toggle to SQL and check which node of the InnoDB Cluster we are connected to. 
 -         For connections on ports 6446 and 64460 we should be on the Primary node (RW)
 -         For connections on ports 6447 and 64470 we should be on one of the Secondary nodes (RO)
-
  MySQL  localhost:6446 ssl  SQL > select @@hostname;
  +------------+
  | @@hostname |
