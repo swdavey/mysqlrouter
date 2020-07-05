@@ -62,14 +62,14 @@ mysqlrouter:x:995:991:MySQL Router:/var/lib/mysqlrouter:/bin/false
 %
 ```
 
-### Security: firewalld and selinux
+### Security: firewalld, selinux and environmental
 In order for application servers and other clients to connect to a MySQL Router the following ports need to be opened:
  * 6446/tcp - SQL protocol for read-write connections
  * 6447/tcp - SQL protocol for read-only connections
  * 64460/tcp - X protocol (for XDevAPI Document Store users) for read-write connections (this also allows SQL sessions)
  * 64470/tcp - X protocol (for XDevAPI Document Store users) for read-only connections (this also allows SQL sessions).
  
-Pacemaker needs to communicate between the nodes using a variety of ports for both TCP and UDP protocols. Fortunately, Pacemaker is a well known package and the Linux firewall can be opened appropriately if the high-availability service is specified. 
+Pacemaker needs to communicate between the nodes using a variety of ports for both TCP and UDP protocols. Fortunately, Pacemaker is a well known package and the Linux firewall can be opened appropriately if the high-availability service is specified (using the service should also insulate you from any changes to ports that might come about as a result of an upgrade, etc. The list of ports that will be opened for Enterprise Linux 7 (RedHat, Centos, Oracle Linux can be found here: https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/high_availability_add-on_reference/s1-firewalls-haar). 
 
 On each node of the MySQL Router tier run the following commands:
 ```
@@ -87,7 +87,9 @@ dhcpv6-client high-availability ssh
 ```
 Note the last two commands confirm that the ports have been opened and the high-availability service is in place.
 
-No change to the selinux mode (enforcing | permissive | disabled) is required because the cluster is stateless (no need for fencing and split brain is not an issue).
+No change to the selinux mode (enforcing | permissive | disabled) is required because our cluster implementation is stateless (i.e. no need to write to storage).
+
+If you are implementing in a Cloud Environment then you may need to make changes to your virtual networking. For example in the Oracle Cloud a rule had to be setup to allow TCP and UDP traffic to run on the virtual network that was being used.
 
 ### Naming Services
 The test environment uses DNS (part of the Oracle Cloud) to resolve hostnames into IP addresses. If you don't have a naming service then you will have to enter the names and IP addresses of each router node and indeed each database node into /etc/hosts. Clients of the router tier will need to be made aware of the floating IP address.
@@ -338,7 +340,7 @@ fi
 
 The same code can be written to /usr/lib/ocf/resource.d/heartbeat/IPaddr2 across all nodes without change. However, much of the code will never be accessed because the if statement on each server will always select just one line of code to be executed. As such, all that is needed is the /root/bin/oci... line with the requisite vnic-id value for the node it is being executed on.
 
-**Further Issue**: the above OCI solution worked as is on my first implementation of a MySQL Router Pacemaker cluster. However, on a subsequent implementation with a slightly later kernel revision it ceased to work. The problem was traced to Python 3 not being happy with the locale. The fix to this issue was to explicitly set the locale in the /usr/lib/ocf/resource.d/heartbeat/IPaddr2 script. At line 65:
+**Further Issue**: the above OCI CLI / IPaddr2 solution worked as detailed above. However, on a subsequent implementation with a slightly later kernel implementation and newer version of OCI CLI (old version 2.12.0, new 2.12.1) it ceased to work. The problem was traced to Python 3 not being happy with the locale. The fix to this issue was to explicitly set the locale in the /usr/lib/ocf/resource.d/heartbeat/IPaddr2 script. At line 65:
 ```sh
 export LC_ALL=C.UTF-8
 export LANG=C.UTF-8
