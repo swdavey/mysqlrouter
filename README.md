@@ -18,11 +18,11 @@ An alternative is to use standard clustering technologies and approaches. For ex
 In addition to these three sections there is an addendum which details a small amount of extra administration work in order to get the solution to work in the Oracle Cloud.
 
 ## Environment Overview
-The diagram below details the environment that was built in order to firstly demonstrate how to setup and configure a highly-available clustered MySQL Router tier, and secondly to provide the necessary infrastructure to test the clustered tier.
+The diagram below details the environment that was built in the Oracle Cloud order to firstly demonstrate how to setup and configure a highly-available clustered MySQL Router tier, and secondly to provide the necessary infrastructure to test this tier.
 
 ![](../master/images/topology.png)
 
-** MySQL Router Tier Stack **
+**MySQL Router Tier stack:**
 
 A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. Each node was an Oracle Compute Instance (i.e. a Virtual Machine) with the following stack:
 
@@ -44,7 +44,7 @@ This can be broken down into the following logical parts.
 3. Bootstrapping the MySQL Router Tier 
 4. Setup and Configuration of the Cluster
 
-### Software Install of the MySQL Router Tier
+### Software Stack Install of the MySQL Router Tier
 Either the Enterprise or Community editions of MySQL software can be used. In the case below the RPM packages for MySQL are the commercial versions (enterprise edition) and were downloaded prior to install. Pacemaker and its associated packages are all available from Oracle-Linux/Redhat/Centos/Fedora repositories as standard.
 
 Install the software as shown below on **all nodes** in the router tier.
@@ -91,9 +91,7 @@ No change to the selinux mode (enforcing | permissive | disabled) is required be
 
 If you are implementing in a Cloud Environment then you may need to make changes to your virtual networking. For example in the Oracle Cloud a rule had to be setup to allow TCP and UDP traffic to run on the virtual network that was being used.
 
-**Naming Services**:
-
-The test environment uses DNS (part of the Oracle Cloud) to resolve hostnames into IP addresses. If you don't have a naming service then you will have to enter the names and IP addresses of each router node and indeed each database node into /etc/hosts. Clients of the router tier will need to be made aware of the floating IP address.
+**Naming Services**: the test environment uses DNS to resolve hostnames into IP addresses. If you don't have a naming service then you will have to enter the names and IP addresses of each router node and indeed each database node into /etc/hosts. Clients of the router tier will need to be made aware of the floating IP address.
 
 ### Bootstrapping of MySQL Router
 To bootstrap the cluster we need to be aware of the backend database cluster or replica set being used. In this case a 3 node InnoDB Cluster is being used. It's Primary node is called ic1 and it's cluster administrator user account is clustadm@ic1. For each node in the MySQL Router cluster, run the following
@@ -298,12 +296,31 @@ Some points to note:
   * We can also see that both pacemaker and corosync daemons are active/disabled. All this means is that these daemons are running (under systemd) but they have not been enabled to allow systemd to restart them upon reboot, etc.
 
 **Configure Pacemaker Properties**:
-
+The following properties were configured (see below for the reasoning behind these settings)
 ```
 % sudo pcs property set no-quorum-policy=ignore
 % sudo pcs property set stonith-enabled=false
 % sudo resource defaults migration-threshold=1
 ```
+
+The no-quorum-policy default value is stop, meaning that all resources (e.g. mysqlrouter) in the cluster will be stopped if the cluster does not have quorum. For what is an effectively stateless service this seems overly aggressive: why would you pull down a perfectly good database connection just because the cluster cannot achieve quorum? Available options include:
+* ignore    continue all resource management	
+* freeze    continue all resource management but do not recover resources from nodes not in the affected partition
+* stop      stop all resources in the affected cluster partition
+* suicide   fence all nodes in the affected cluster partition
+
+For our purposes (single, simple, stateless application) ignore would seem to be the best fit.
+
+When a resource is created it can be configured so that it will move to a new node after a defined number of failures by setting the migration-threshold option for that resource. Once the threshold has been reached, this node will no longer be allowed to run the failed resource until:
+* The administrator manually resets the resource's failcount using the pcs resource failcount command.
+* The resource's failure-timeout value is reached.
+The value of migration-threshold is set to INFINITY by default. INFINITY is defined internally as a very large but finite number. A value of 0 disables the migration-threshold feature.
+
+For our purposes we want to failover (so 0 is a wrong value) and we want the failover decision to be made on the first failure of MySQL Router and so a value of 1 is being used.
+
+Stop failures are slightly different and crucial. If a resource fails to stop and STONITH is enabled, then the cluster will fence the node in order to be able to start the resource elsewhere. If STONITH is not enabled, then the cluster has no way to continue and will not try to start the resource elsewhere, but will try to stop it again after the failure timeout.
+
+	For the MySQL Router Tier there is no session state and so there is no need to worry about fencing and split brain. Therefore, STONITH can be disabled.
 
 **Assigning Resources to the Pacemaker Cluster**:
 
@@ -315,13 +332,22 @@ Some points to note:
 
 **Readying the Cluster for Testing**:
 
+In order to make the cluster ready all that is needed is a restart:
 ```
 % sudo pcs cluster stop --all
 % sudo pcs cluster start --all
 ```
-Note: if you are deploying on the Oracle Cloud
+Note: if you are deploying in the Oracle Cloud you will need to do some additional work (see below, after the Testing section).
 
 ## Testing
+The following tests were conducted to prove the worth of the cluster:
+* Basic Ping Testing
+* Simple Failover Testing
+* MySQL Shell Client Testing
+* Basic Application Server Testing
+* Failover Testing
+
+### Basic Ping Testing
 
 ## Additional Work Required for the Oracle Cloud
 **Problem statement**: when the active node fails over to a passive node, the floating IP address must be moved to this passive node in order for it to become the new active node. Pacemaker understands that this is required but Oracle virtual networking is reluctant to reassign the floating IP address to the new active node. This understandable because in normal circumstances it is not desirable to have the potential of two or more interfaces on the same network using the same IP address.
