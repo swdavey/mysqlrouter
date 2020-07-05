@@ -199,7 +199,7 @@ rt1
 - Now repeat the above until all MySQL Router nodes and ports have been tested.
 ```
 
-## Setup and Configuration of the Cluster
+### Setup and Configuration of the Cluster
 
 **Initial Setup of the Pacemaker Cluster**:
 
@@ -296,6 +296,7 @@ Some points to note:
   * We can also see that both pacemaker and corosync daemons are active/disabled. All this means is that these daemons are running (under systemd) but they have not been enabled to allow systemd to restart them upon reboot, etc.
 
 **Configure Pacemaker Properties**:
+
 The following properties were configured (see below for the reasoning behind these settings)
 ```
 % sudo pcs property set no-quorum-policy=ignore
