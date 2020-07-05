@@ -197,7 +197,7 @@ rt1
 - Now repeat the above until all MySQL Router nodes and ports have been tested.
 ```
 
-### Setup and Configure the Pacemaker Cluster
+### Initial Setup of the Pacemaker Cluster
 Set the password for the hacluster user account **on each of the MySQL Router nodes**:
 ```
 % sudo passwd hacluster
@@ -284,15 +284,68 @@ Daemon Status:
 ```
 Some points to note:
 * The cluster can be monitored from any node using either the status command as shown or crm_mon. If crm_mon is run then it will act as a console and continue to be updated. An alternative usage is to specify the number of times you want it to sample before exiting. For example to take a snapshot you would specify "one" as follows: crm_mon -1
-* From the above status output we can see that we have a cluster but no resources are configured. Configuring resources will be one of next steps.
-* We can also see that both pacemaker and corosync daemons are active/disabled. All this means is that these daemons are running (under systemd) but they have not been enabled to allow systemd to restart them upon reboot, etc.
+* From the above status output we can see that 
+  * We have warnings with respect to stonith (Shoot The Other Node In The Head - used for split brain) and these will need to be addressed. 
+  * Quorum is in place, however, for our cluster we need to change the default behaviour when quorum is lost. 
+  * We have a cluster but no resources are configured. Configuring resources (i.e. providing a VIP, associating the MySQL Router service with the cluster) will be done as one of the next steps.
+  * We can also see that both pacemaker and corosync daemons are active/disabled. All this means is that these daemons are running (under systemd) but they have not been enabled to allow systemd to restart them upon reboot, etc.
 
-For our cluster we need to set some properties:
+### Configuring Pacemaker Properties
+
 ```
 % sudo pcs property set no-quorum-policy=ignore
 % sudo pcs property set stonith-enabled=false
 % sudo resource defaults migration-threshold=1
 ```
+### Assigning Resources to the Pacemaker Cluster
+
+```
+% sudo pcs resource create Router_VIP ocf:heartbeat:IPaddr2 ip=10.0.0.101 cidr_netmask=16 nic=ens3 op monitor interval=5s
+% sudo pcs resource create mysqlrouter systemd:mysqlrouter clone
+% sudo pcs constraint colocation add Router_VIP with mysqlrouter-clone score=INFINITY
+```
+
+### Additional Work Required for the Oracle Cloud
+**Problem statement**: when the active node fails over to a passive node, the floating IP address must be moved to this passive node in order for it to become the new active node. Pacemaker understands that this is required but Oracle virtual networking is reluctant to reassign the floating IP address to the new active node. This understandable because in normal circumstances it is not desirable to have the potential of two or more interfaces on the same network using the same IP address.
+
+**Solution**: explicitly instruct Oracle virtual network to remove the floating IP address from the failed node and reassign it to the new active node. The Pacemaker stack install provides an Open Cluster Framework Resource Agent script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, whose purpose is to provide an interface to manage IP resources. 
+
+**Implementation**: install Oracle Cloud Infrastructure (OCI) Command Line Interface (CLI) utility on each node in order to provide a script interface to the Oracle Cloud so that when a failover event triggers the script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, we can make a call to OCI that will reassign the IP address.
+
+To install and configure the OCI CLI follow the procedure detailed here: https://docs.cloud.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm
+
+Before you can edit /usr/lib/ocf/resource.d/heartbeat/IPaddr2 you will need to obtain the following information:
+1. The name of the VNIC which will be used to host the floating IP address. This is typically ens3, but you should check using ip addr (on each node in the cluster!).
+2. The OCID of the VNIC. Log into the OCI Console, then for each node navigate to VNIC Details (Compute > Instances > Instance Details > Attached VNICs > VNIC Details). Copy the VNIC's OCID value.
+
+Once installed and configured you will need to add the following lines of code to /usr/lib/ocf/resource.d/heartbeat/IPaddr2. These lines were added immediately under the header comments (line 65 to be precise):
+```sh
+##### OCI vNIC variables
+SERVER=`hostname -s`
+RT1_VNIC="ocid1.vnic.oc1.uk-london-1.abwgiljsbwszs6e....................................3qgawid6q"
+RT2_VNIC="ocid1.vnic.oc1.uk-london-1.abwgiljschdlc72....................................7gga2xunq"
+RT3_VNIC="ocid1.vnic.oc1.uk-london-1.abwgiljsxjhqmiw....................................p7tt22iwa"
+FLOATING_IP="10.0.0.101"
+##### OCI/IPaddr Integration
+if [ $SERVER = "rt1" ]; then
+        /root/bin/oci network vnic assign-private-ip --unassign-if-already-assigned --vnic-id $RT1_VNIC --ip-address $FLOATING_IP
+elif [ $SERVER = "rt2" ]; then
+        /root/bin/oci network vnic assign-private-ip --unassign-if-already-assigned --vnic-id $RT2_VNIC --ip-address $FLOATING_IP
+elif [ $SERVER = "rt3" ]; then
+        /root/bin/oci network vnic assign-private-ip --unassign-if-already-assigned --vnic-id $RT3_VNIC --ip-address $FLOATING_IP
+fi
+```
+
+The same code can be written to /usr/lib/ocf/resource.d/heartbeat/IPaddr2 across all nodes without change. However, much of the code will never be accessed because the if statement on each server will always select just one line of code to be executed. As such, all that is needed is the /root/bin/oci... line with the requisite vnic-id value for the node it is being executed on.
+
+**Further Issue**: the above OCI solution worked as is on my first implementation of a MySQL Router Pacemaker cluster. However, on a subsequent implementation with a slightly later kernel revision it ceased to work. The problem was traced to Python 3 not being happy with the locale. The fix to this issue was to explicitly set the locale in the /usr/lib/ocf/resource.d/heartbeat/IPaddr2 script. At line 65:
+```sh
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+##### OCI vNIC variables
+SERVER=`hostname -s`
+```
+Once this was done, normal service was resumed.
 
 ### Testing
 
