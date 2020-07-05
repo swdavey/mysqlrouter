@@ -1,36 +1,29 @@
 # Highly Available Deployment of MySQL Router
 
 ## Introduction
-The purpose of this readme is to document how to set up a highly available mid-tier of MySQL Router instances.
+MySQL Router can be deployed either with application servers or on its own mid-tier.
 
-MySQL Router is typically used in conjunction with either MySQL InnoDB Cluster or MySQL Replica Sets. 
-Applications connect to a MySQL Router instance and that instance then transparently routes communications 
-between the application and the backend (InnoDB Cluster or Replica Set).
-MySQL Router keeps track of the backend's topology (i.e. nodes joining and leaving as well as each node's role: primary or secondary). By doing so it becomes aware of backend node failures and when such failures do it occur it will failover connections to a surviving node. 
-
-## Deployment Approaches
-MySQL Router can be deployed either with the application server or on its own mid-tier.
-
-The advantage of deploying MySQL Router with the application is there is no need to worry about high availability: if the hosting machine is up and running correctly then, assuming MySQL Router has been configured and bootstrapped correctly, it will almost certainly continue to run. The disadvantage of deploying MySQL Router on application servers is that you have to do it for each and every application server. This is not too much of a problem if you only have small numbers of application servers but becomes more onerous with large numbers (e.g. administration effort to deploy and (perhaps more critically) maintain). 
+The advantage of deploying MySQL Router with the application is there is no need to worry about high availability: if the hosting machine is up and running correctly then, assuming MySQL Router has been configured and bootstrapped correctly, it will almost certainly continue to run. The disadvantage of deploying MySQL Router on application servers is that it has to be done for each and every application server. This is not too much of a problem if there is only a small numbers of application servers but becomes more onerous with large numbers (e.g. administration effort to both deploy and maintain). 
 
 To overcome the issue of deploying MySQL Router on large numbers of application servers MySQL Router can be deployed on a separate mid-tier. This mid-tier needs to be made highly-available in order to prevent it representing a Single Point Of Failure (SPOF) which would largely defeat the point of making the backend database highly available. Currently (June 2020. MySQL 8.0.20 being the most recent release), MySQL Router has no built-in clustering function. Therefore to make a HA MySQL Router tier third party solutions are required.
 
-One method documented by MySQL is to use DNS-SRV records in conjuction with software such as Consul and dnsmasq. In practice this is difficult to implement and given it requires changes to DNS configurations is likely to be resisted in production environments.
+One method, documented by MySQL, is to use DNS-SRV records in conjuction with software such as Consul and dnsmasq. In production this is difficult to implement and given it requires changes to DNS configurations which are likely to be resisted in production environments.
 
-An alternative is to use standard clustering technologies and approaches. For example: software that manages cluster membership and failover; a floating IP address such that client software has a consistent point of attachment. The remainder of this document details how this can be achieved on Linux servers using Pacemaker (Linux clusterware).
+An alternative is to use standard clustering technologies and approaches. For example: software that manages cluster membership: automatically fails over resources when a node goes down, and which utilizes a floating IP address such that client software has a consistent point of attachment. The remainder of this document details how this can be achieved on Linux servers using Pacemaker and Corosync which collectively form a standard Linux clustering solution. This document has three main sections:
 
-## Test Environment
-The diagram below details the test environment upon which this document is based. Given the purpose of this document is to discuss how to create a highly available MySQL Router tier only that element will be discussed in detail and the other components will only be mentioned in support of that aim.
+1. Environment Overview
+2. Implementation of the HA MySQL Router Tier Solution
+3. Testing Undertaking
 
-The architectural reasoning behind the above topology is:
-1. A desire to test on something that closely approximates production.
-2. The number of nodes in the router tier was set at three which would mean the cluster would still be highly available even if a node was taken down for maintenance.
-3. The number of nodes in the database tier (InnoDB Cluster) was set as three which is the minimum required as well as being the most common implementation.
-4. MySQL Shell was used for preliminary testing on the router tier in order to establish that the routers were working correctly prior to adding the clusterware.
-5. MySQL Shell was used for preliminary testing on the client tier in order to prove that the router tier was accepting remote connections and routing them through to the datbase tier.
-6. A true application server hosting a Java application was used because in production connections will typically be from such servers and not MySQL shell.
+In addition to these three sections there is an addendum which details a small amount of extra administration work in order to get the solution to work in the Oracle Cloud.
 
-### MySQL Router Tier Stack
+## Environment Overview
+The diagram below details the environment that was built in order to firstly demonstrate how to setup and configure a highly-available clustered MySQL Router tier, and secondly to provide the necessary infrastructure to test the clustered tier.
+
+![](../master/images/topology.png)
+
+** MySQL Router Tier Stack **
+
 A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. Each node was an Oracle Compute Instance (i.e. a Virtual Machine) with the following stack:
 
   * Virtual machine specification: 1 core OCPU, 16 GB memory, 1 Gbps network bandwidth, nom 50GB storage
@@ -40,9 +33,16 @@ A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. E
   * Pacemaker 1.1.21
   
 Notes: 
-1. Oracle Linux is a variant of Red Hat Enterprise Linux and as such it is expected that implementing a HA MySQL Router tier on either Red Hat, Centos or Fedora operating systems will work if configured in the same manner.
-2. The Ubuntu OS also has a Pacemaker implementation and so it is assumed that this will also work.
-3. Oracle Cloud: a small amount of additional integration work was required in order for the solution to work with Oracle Cloud's virtual network. This is detailed at the end of this document. It is anticipated that **no additional work** would be required with physical servers. Depending on how virtual networking is implemented in other cloud there may be some similar work required. 
+* Oracle Linux is a variant of Red Hat Enterprise Linux and as such it is expected that implementing a HA MySQL Router tier on either Red Hat, Centos or Fedora operating systems will work if configured in the same manner.
+* The Ubuntu OS also has a Pacemaker implementation and so it is assumed that this will also work.
+* Oracle Cloud: a small amount of additional integration work was required in order for the solution to work with Oracle Cloud's virtual network. This is detailed at the end of this document. It is anticipated that **no additional work** would be required with physical servers. Depending on how virtual networking is implemented in other cloud there may be some similar work required. 
+
+## Implementation of the MySQL Router Tier Solution
+This can be broken down into the following logical parts.
+1. Software Stack Install
+2. Security Considerations: firewalld, selinux and environmental
+3. Bootstrapping the MySQL Router Tier 
+4. Setup and Configuration of the Cluster
 
 ### Software Install of the MySQL Router Tier
 Either the Enterprise or Community editions of MySQL software can be used. In the case below the RPM packages for MySQL are the commercial versions (enterprise edition) and were downloaded prior to install. Pacemaker and its associated packages are all available from Oracle-Linux/Redhat/Centos/Fedora repositories as standard.
@@ -62,7 +62,7 @@ mysqlrouter:x:995:991:MySQL Router:/var/lib/mysqlrouter:/bin/false
 %
 ```
 
-### Security: firewalld, selinux and environmental
+### Security Considerations: firewalld, selinux and environmental
 In order for application servers and other clients to connect to a MySQL Router the following ports need to be opened:
  * 6446/tcp - SQL protocol for read-write connections
  * 6447/tcp - SQL protocol for read-only connections
@@ -91,7 +91,8 @@ No change to the selinux mode (enforcing | permissive | disabled) is required be
 
 If you are implementing in a Cloud Environment then you may need to make changes to your virtual networking. For example in the Oracle Cloud a rule had to be setup to allow TCP and UDP traffic to run on the virtual network that was being used.
 
-### Naming Services
+**Naming Services**:
+
 The test environment uses DNS (part of the Oracle Cloud) to resolve hostnames into IP addresses. If you don't have a naming service then you will have to enter the names and IP addresses of each router node and indeed each database node into /etc/hosts. Clients of the router tier will need to be made aware of the floating IP address.
 
 ### Bootstrapping of MySQL Router
@@ -100,7 +101,8 @@ To bootstrap the cluster we need to be aware of the backend database cluster or 
 % sudo mysqlrouter --user mysqlrouter --force --bootstrap clusteradm@ic1
 % sudo systemctl restart mysqlrouter
 ```
-### Test MySQL Router Instance Connectivity
+**Test MySQL Router Instance Connectivity**:
+
 On the **primary node** of the **InnoDB Cluster**:
  * create a document store schema and give it a collection
  * create a database and give it a table
@@ -199,7 +201,10 @@ rt1
 - Now repeat the above until all MySQL Router nodes and ports have been tested.
 ```
 
-### Initial Setup of the Pacemaker Cluster
+## Setup and Configuration of the Cluster
+
+**Initial Setup of the Pacemaker Cluster**:
+
 Set the password for the hacluster user account **on each of the MySQL Router nodes**:
 ```
 % sudo passwd hacluster
@@ -292,14 +297,15 @@ Some points to note:
   * We have a cluster but no resources are configured. Configuring resources (i.e. providing a VIP, associating the MySQL Router service with the cluster) will be done as one of the next steps.
   * We can also see that both pacemaker and corosync daemons are active/disabled. All this means is that these daemons are running (under systemd) but they have not been enabled to allow systemd to restart them upon reboot, etc.
 
-### Configuring Pacemaker Properties
+**Configure Pacemaker Properties**:
 
 ```
 % sudo pcs property set no-quorum-policy=ignore
 % sudo pcs property set stonith-enabled=false
 % sudo resource defaults migration-threshold=1
 ```
-### Assigning Resources to the Pacemaker Cluster
+
+**Assigning Resources to the Pacemaker Cluster**:
 
 ```
 % sudo pcs resource create Router_VIP ocf:heartbeat:IPaddr2 ip=10.0.0.101 cidr_netmask=16 nic=ens3 op monitor interval=5s
@@ -307,7 +313,17 @@ Some points to note:
 % sudo pcs constraint colocation add Router_VIP with mysqlrouter-clone score=INFINITY
 ```
 
-### Additional Work Required for the Oracle Cloud
+**Readying the Cluster for Testing**:
+
+```
+% sudo pcs cluster stop --all
+% sudo pcs cluster start --all
+```
+Note: if you are deploying on the Oracle Cloud
+
+## Testing
+
+## Additional Work Required for the Oracle Cloud
 **Problem statement**: when the active node fails over to a passive node, the floating IP address must be moved to this passive node in order for it to become the new active node. Pacemaker understands that this is required but Oracle virtual networking is reluctant to reassign the floating IP address to the new active node. This understandable because in normal circumstances it is not desirable to have the potential of two or more interfaces on the same network using the same IP address.
 
 **Solution**: explicitly instruct Oracle virtual network to remove the floating IP address from the failed node and reassign it to the new active node. The Pacemaker stack install provides an Open Cluster Framework Resource Agent script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, whose purpose is to provide an interface to manage IP resources. 
@@ -348,12 +364,3 @@ export LANG=C.UTF-8
 SERVER=`hostname -s`
 ```
 Once this was done, normal service was resumed.
-
-### Testing
-
-The test infrastructure is detailed in the diagram below:
-![](../master/images/testTopology.png)
-
-### Oracle Cloud Specifics
-
-In order for the floating VIP to be correctly assigned and reassigned to the nodes it was necessary to add the following lines 
