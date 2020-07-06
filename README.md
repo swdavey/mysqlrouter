@@ -1,15 +1,15 @@
 # Highly Available Deployment of MySQL Router
 
 ## Introduction
-MySQL Router can be deployed either with application servers or on its own mid-tier.
+MySQL Router can be deployed either with indidvidual application servers or on its own mid-tier.
 
-The advantage of deploying MySQL Router with the application is there is no need to worry about high availability: if the hosting machine is up and running correctly then, assuming MySQL Router has been configured and bootstrapped correctly, it will almost certainly continue to run. The disadvantage of deploying MySQL Router on application servers is that it has to be done for each and every application server. This is not too much of a problem if there is only a small numbers of application servers but becomes more onerous with large numbers (e.g. administration effort to both deploy and maintain). 
+The advantage of deploying MySQL Router with application servers is there is no need to worry about high availability: if the hosting machine is up and running correctly then, assuming MySQL Router has been configured and bootstrapped correctly, it will almost certainly continue to run. The disadvantage of deploying MySQL Router on application servers is that it has to be done for each and every application server. This is not too much of a problem if there is only a small numbers of application servers but it becomes onerous with large numbers (i.e. administration effort to both deploy and maintain). 
 
-To overcome the issue of deploying MySQL Router on large numbers of application servers MySQL Router can be deployed on a separate mid-tier. This mid-tier needs to be made highly-available in order to prevent it representing a Single Point Of Failure (SPOF) which would largely defeat the point of making the backend database highly available. Currently (June 2020. MySQL 8.0.20 being the most recent release), MySQL Router has no built-in clustering function. Therefore to make a HA MySQL Router tier third party solutions are required.
+To overcome the issue of deploying MySQL Router on large numbers of application servers MySQL Router can be deployed on a separate mid-tier. This mid-tier needs to be made highly-available in order to prevent it representing a Single Point Of Failure (SPOF) which would defeat the point of making the backend database highly available. Currently (June 2020. MySQL 8.0.20 being the most recent release), MySQL Router has no built-in clustering function. Therefore to make a Highly Available MySQL Router tier third party solutions are required.
 
-One method, documented by MySQL, is to use DNS-SRV records in conjuction with software such as Consul and dnsmasq. In production this is difficult to implement and given it requires changes to DNS configurations which are likely to be resisted in production environments.
+One method, documented by MySQL, is to use DNS-SRV records in conjuction with software such as Consul and dnsmasq. In production this is difficult to implement because it requires changes to DNS configurations and these are often resisted by network administrators.
 
-An alternative is to use standard clustering technologies and approaches. For example: software that manages cluster membership: automatically fails over resources when a node goes down, and which utilizes a floating IP address such that client software has a consistent point of attachment. The remainder of this document details how this can be achieved on Linux servers using Pacemaker and Corosync which collectively form a standard Linux clustering solution. This document has three main sections:
+An alternative is to use standard clustering technologies and approaches. For example, software that: manages cluster membership; automatically fails over resources on error, and which utilizes a floating IP address such that clients have a consistent point of attachment. The remainder of this document details how this can be achieved on Linux servers using Pacemaker and Corosync which collectively form a standard Linux clustering solution. This document has three main sections:
 
 1. Environment Overview
 2. Implementation of the HA MySQL Router Tier Solution
@@ -18,7 +18,7 @@ An alternative is to use standard clustering technologies and approaches. For ex
 In addition to these three sections there is an addendum which details a small amount of extra administration work in order to get the solution to work in the Oracle Cloud.
 
 ## Environment Overview
-The diagram below details the environment that was built in the Oracle Cloud order to firstly demonstrate how to setup and configure a highly-available clustered MySQL Router tier, and secondly to provide the necessary infrastructure to test this tier.
+The diagram below details the environment that was built in the Oracle Cloud to demonstrate how to setup and configure a highly-available clustered MySQL Router tier as well as to test the same.
 
 ![](../master/images/topology.png)
 
@@ -30,11 +30,13 @@ A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. E
   * OS: Oracle Linux 7.8, kernel rev 4.14.35-1902.303.4.1.el7uek.x86_64
   * MySQL Router 8.0.20
   * MySQL Shell 8.0.20 (optional - used to test router connectivity)
-  * Pacemaker 1.1.21
+  * Pacemaker HA Resource Manager 1.1.21
+  * Corosync Cluster Engine 2.4.5
   
 Notes: 
 * Oracle Linux is a variant of Red Hat Enterprise Linux and as such it is expected that implementing a HA MySQL Router tier on either Red Hat, Centos or Fedora operating systems will work if configured in the same manner.
 * The Ubuntu OS also has a Pacemaker implementation and so it is assumed that this will also work.
+* Pacemaker and Corosync collectively work together to provide a highly available clustering solution which is managed through its **pcs** interface (Pacemaker/Corosync Configuration System). Given there are too many three lettered acronyms in the world and typing/reading Pacemaker and Corosync is hardwork, the cluster in this document will be referred to as Pacemaker. 
 * Oracle Cloud: a small amount of additional integration work was required in order for the solution to work with Oracle Cloud's virtual network. This is detailed at the end of this document. It is anticipated that **no additional work** would be required with physical servers. Depending on how virtual networking is implemented in other cloud there may be some similar work required. 
 
 ## Implementation of the MySQL Router Tier Solution
@@ -53,6 +55,8 @@ Install the software as shown below on **all nodes** in the router tier.
 % sudo yum localinstall --nogpgcheck mysql-shell-commercial-8.0.20-1.1.el7.x86_64.rpm
 % sudo yum install pcs pacemaker resource-agents
 ```
+Corosync is installed as a dependency of Pacemaker. Additionally we install pcs (to manage the Pacemaker cluster) and resource-agents (which provide an interface to the systemd managed MySQL Router). The cluster will be stateless and so there is no need to install fencing agents.
+
 For information: the install of the above software will see the creation of three accounts:
 ```
 % tail -3 /etc/passwd
@@ -69,7 +73,7 @@ In order for application servers and other clients to connect to a MySQL Router 
  * 64460/tcp - X protocol (for XDevAPI Document Store users) for read-write connections (this also allows SQL sessions)
  * 64470/tcp - X protocol (for XDevAPI Document Store users) for read-only connections (this also allows SQL sessions).
  
-Pacemaker needs to communicate between the nodes using a variety of ports for both TCP and UDP protocols. Fortunately, Pacemaker is a well known package and the Linux firewall can be opened appropriately if the high-availability service is specified (using the service should also insulate you from any changes to ports that might come about as a result of an upgrade, etc. The list of ports that will be opened for Enterprise Linux 7 (RedHat, Centos, Oracle Linux can be found here: https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/high_availability_add-on_reference/s1-firewalls-haar). 
+Pacemaker needs to communicate between the nodes using a variety of ports for both TCP and UDP protocols. Fortunately, Pacemaker is a well known package and the Linux firewall can be opened appropriately if the high-availability service is specified. Using this service rather than specifying ports should also insulate as from any changes to ports that might come about as a result of an upgrade, etc. The list of ports that will be opened for Enterprise Linux 7 (i.e. RedHat, Centos, Oracle Linux, etc.) can be found here: https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/high_availability_add-on_reference/s1-firewalls-haar). 
 
 On each node of the MySQL Router tier run the following commands:
 ```
@@ -85,23 +89,23 @@ On each node of the MySQL Router tier run the following commands:
 dhcpv6-client high-availability ssh
 %
 ```
-Note the last two commands confirm that the ports have been opened and the high-availability service is in place.
+The last two commands confirm that the ports have been opened for MySQL Router and that the high-availability service is in place.
 
 No change to the selinux mode (enforcing | permissive | disabled) is required because our cluster implementation is stateless (i.e. no need to write to storage).
 
-If you are implementing in a Cloud Environment then you may need to make changes to your virtual networking. For example in the Oracle Cloud a rule had to be setup to allow TCP and UDP traffic to run on the virtual network that was being used.
+If implementing in a Cloud Environment then it may be necessary to make changes to virtual networking firewalls. For example, in the Oracle Cloud a rule must be in place to allow TCP and UDP traffic to run across the virtual network being used.
 
 **Naming Services**: the test environment uses DNS to resolve hostnames into IP addresses. If you don't have a naming service then you will have to enter the names and IP addresses of each router node and indeed each database node into /etc/hosts. Clients of the router tier will need to be made aware of the floating IP address.
 
 ### Bootstrapping of MySQL Router
-To bootstrap the cluster we need to be aware of the backend database cluster or replica set being used. In this case a 3 node InnoDB Cluster is being used. It's Primary node is called ic1 and it's cluster administrator user account is clustadm@ic1. For each node in the MySQL Router cluster, run the following
+The MySQL Router instances need to be bootstrap with respect to the backend database tier they will connect to. In this case a 3 node InnoDB Cluster is being used. It's Primary node is called ic1 and it's cluster administrator user account is clustadm@ic1. For each node in the MySQL Router cluster, run the following
 ```
 % sudo mysqlrouter --user mysqlrouter --force --bootstrap clusteradm@ic1
 % sudo systemctl restart mysqlrouter
 ```
 **Test MySQL Router Instance Connectivity**:
 
-On the **primary node** of the **InnoDB Cluster**:
+To test MySQL Router connectivity with the backend database tier, the database tier needs to be primed with some data and a user account. On the **primary node** of the **InnoDB Cluster**:
  * create a document store schema and give it a collection
  * create a database and give it a table
  * create a user and grant that user select, insert, update and delete on both the schema and database. Note the user should be able to log in from anywhere.
@@ -210,7 +214,7 @@ New password:
 Retype new password:
 passwd: all authentication tokens updated successfully.
 ```
-In the example above the password used was MyPa55wd! - this will be use when we come to create the cluster.
+In the example above the password used was MyPa55wd! - this will be used by Pacemaker to authenticate the nodes to the cluster and each other (see below).
 
 Now start the pcsd service **on each MySQL Router node** in order that we can create the cluster. Assuming the start is successful then enable the service so that it automatically restarts on a reboot. 
 ```
@@ -218,73 +222,73 @@ Now start the pcsd service **on each MySQL Router node** in order that we can cr
 % sudo systemctl enable pcsd.service
 ```
 
-With the pcsd service now running on each node, we can create the cluster. Firstly, set up authentication between the nodes using the hacluster user, then create the cluster and finally start it. On **one node of the cluster**:
-```
+With the pcsd service now running on each node, the cluster can be created. To begin, set up authentication between the nodes using the hacluster user, then create the cluster and finally start it. On **one node of the cluster**:
+```diff
 % sudo pcs cluster auth rt1 rt2 rt3 -u hacluster -p MyPa55wd!
-rt1: Authorized
-rt2: Authorized
-rt3: Authorized
+- rt1: Authorized
+- rt2: Authorized
+- rt3: Authorized
 % sudo pcs cluster setup --name mysqlroutercluster rt1 rt2 rt3    
-Destroying cluster on nodes: mrt1, mrt2...
-rt1: Stopping Cluster (pacemaker)...
-rt2: Stopping Cluster (pacemaker)...
-rt3: Stopping Cluster (pacemaker)...
-rt1: Successfully destroyed cluster
-rt2: Successfully destroyed cluster
-rt3: Successfully destroyed cluster
+- Destroying cluster on nodes: mrt1, mrt2...
+- rt1: Stopping Cluster (pacemaker)...
+- rt2: Stopping Cluster (pacemaker)...
+- rt3: Stopping Cluster (pacemaker)...
+- rt1: Successfully destroyed cluster
+- rt2: Successfully destroyed cluster
+- rt3: Successfully destroyed cluster
 
-Sending 'pacemaker_remote authkey' to 'mrt1', 'mrt2'
-rt1: successful distribution of the file 'pacemaker_remote authkey'
-rt2: successful distribution of the file 'pacemaker_remote authkey'
-rt3: successful distribution of the file 'pacemaker_remote authkey'
-Sending cluster config files to the nodes...
-rt1: Succeeded
-rt2: Succeeded
-rt3: Succeeded
+- Sending 'pacemaker_remote authkey' to 'mrt1', 'mrt2'
+- rt1: successful distribution of the file 'pacemaker_remote authkey'
+- rt2: successful distribution of the file 'pacemaker_remote authkey'
+- rt3: successful distribution of the file 'pacemaker_remote authkey'
+- Sending cluster config files to the nodes...
+- rt1: Succeeded
+- rt2: Succeeded
+- rt3: Succeeded
 
-Synchronizing pcsd certificates on nodes mrt1, mrt2...
-rt1: Success
-rt2: Success
-rt3: Success
-Restarting pcsd on the nodes in order to reload the certificates...
-rt1: Success
-rt2: Success
-rt3: Success
+- Synchronizing pcsd certificates on nodes mrt1, mrt2...
+- rt1: Success
+- rt2: Success
+- rt3: Success
+- Restarting pcsd on the nodes in order to reload the certificates...
+- rt1: Success
+- rt2: Success
+- rt3: Success
 
 % sudo pcs cluster start --all
-rt1: Starting Cluster (corosync)...
-rt2: Starting Cluster (corosync)...
-rt3: Starting Cluster (corosync)...
-rt1: Starting Cluster (pacemaker)...
-rt2: Starting Cluster (pacemaker)...
-rt3: Starting Cluster (pacemaker)...
+- rt1: Starting Cluster (corosync)...
+- rt2: Starting Cluster (corosync)...
+- rt3: Starting Cluster (corosync)...
+- rt1: Starting Cluster (pacemaker)...
+- rt2: Starting Cluster (pacemaker)...
+- rt3: Starting Cluster (pacemaker)...
 %
 ```
 Give the cluster ~30 seconds to establish itself and then check its status. All the nodes must be online. 
 ```
 % sudo pcs status
-Cluster name: mysqlroutercluster
+- Cluster name: mysqlroutercluster
 
-WARNINGS:
-No stonith devices and stonith-enabled is not false
+- WARNINGS:
+- No stonith devices and stonith-enabled is not false
 
-Stack: corosync
-Current DC: rt1 (version 1.1.21-4.el7-f14e36fd43) - partition with quorum
-Last updated: Thu Jul  2 13:51:38 2020
-Last change: Thu Jul  2 13:51:38 2020 by hacluster via crmd on rt1
+- Stack: corosync
+- Current DC: rt1 (version 1.1.21-4.el7-f14e36fd43) - partition with quorum
+- Last updated: Thu Jul  2 13:51:38 2020
+- Last change: Thu Jul  2 13:51:38 2020 by hacluster via crmd on rt1
 
-3 nodes configured
-0 resources configured
+- 3 nodes configured
+- 0 resources configured
 
-Online: [ rt1 rt2 rt3 ]
+- Online: [ rt1 rt2 rt3 ]
 
-No resources
+- No resources
 
 
-Daemon Status:
-  corosync: active/disabled
-  pacemaker: active/disabled
-  pcsd: active/enabled
+- Daemon Status:
+-  corosync: active/disabled
+-  pacemaker: active/disabled
+-  pcsd: active/enabled
 %
 ```
 Some points to note:
