@@ -339,11 +339,18 @@ For the MySQL Router Tier there is no session state and so there is no need to w
 
 **Readying the Cluster for Testing**:
 
-In order to make the cluster ready all that is needed is a restart:
+Make sure each node of the cluster will restart when booted. **On every node**:
+```
+% sudo systemctl enable pacemaker
+% sudo systemctl enable corosync
+```
+
+In order to make the cluster ready all that is needed is to restart it. **On one node**:
 ```
 % sudo pcs cluster stop --all
 % sudo pcs cluster start --all
 ```
+
 Note: if you are deploying in the Oracle Cloud you will need to do some additional work (see below, after the Testing section).
 
 ## Testing
