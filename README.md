@@ -303,11 +303,11 @@ Some points to note:
 
 **Configure Pacemaker Properties**:
 
-The following properties were configured (see below for the reasoning behind these settings)
+The following properties were configured (see after the code block for the reasoning behind these settings)
 ```
 % sudo pcs property set no-quorum-policy=ignore
 % sudo pcs property set stonith-enabled=false
-% sudo resource defaults migration-threshold=1
+% sudo pcs resource defaults migration-threshold=1
 ```
 
 The no-quorum-policy default value is stop, meaning that all resources (e.g. mysqlrouter) in the cluster will be stopped if the cluster does not have quorum. For what is an effectively stateless service this seems overly aggressive: why would you pull down a perfectly good database connection just because the cluster cannot achieve quorum? Available options include:
@@ -330,12 +330,30 @@ Stop failures are slightly different and crucial. If a resource fails to stop an
 For the MySQL Router Tier there is no session state and so there is no need to worry about fencing and split brain. Therefore, STONITH can be disabled.
 
 **Assigning Resources to the Pacemaker Cluster**:
+Two resources will be added to the cluster: 
+* a floating IP address called, Router_VIP
+* the mysqlrouter application. 
+
+With respect to the Router_VIP the following information is required:
+* An IP address.
+* The netmask for the subnet the IP address belongs; this needs to be in CIDR format.
+* The name of the interface that the Router_VIP will be assigned to:
+  * This is meant to be optional but in the environment being tested it seemed to be required (this may be a feature of a virtualized environment)
+  * If the nic is specified, then it needs to be the same on each node in the cluster. 
+  * To get the nic name run **ip addr** and select accordingly.
+* An approrpriate interval in seconds. 
+
+The mysqlrouter resource is managed through systemd. In the command to add this resource (see below) a **clone** parameter is used which indicates that MySQL Router will run on all nodes of the cluster.
 
 ```
 % sudo pcs resource create Router_VIP ocf:heartbeat:IPaddr2 ip=10.0.0.101 cidr_netmask=16 nic=ens3 op monitor interval=5s
 % sudo pcs resource create mysqlrouter systemd:mysqlrouter clone
+```
+Once these resources have been added they will be colocated such that the floating IP must be present on the node running MySQL Router:
+```
 % sudo pcs constraint colocation add Router_VIP with mysqlrouter-clone score=INFINITY
 ```
+The **score=INFINITY** parameter and value indicates that the source_resource, Router_VIP, must run on the same node as the target_resource, mysqlrouter.
 
 **Readying the Cluster for Testing**:
 
@@ -360,6 +378,9 @@ The following tests were conducted to prove the worth of the cluster:
 * MySQL Shell Client Testing
 * Basic Application Server Testing
 * Failover Testing
+  * Contolled failover
+  * Stopping MySQL Router on active node, failing over and recovery
+  * Crashing the active node, failing over and recovery
 
 ### Basic Ping Testing
 
