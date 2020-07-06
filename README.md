@@ -58,11 +58,11 @@ Install the software as shown below on **all nodes** in the router tier.
 Corosync is installed as a dependency of Pacemaker. Additionally we install pcs (to manage the Pacemaker cluster) and resource-agents (which provide an interface to the systemd managed MySQL Router). The cluster will be stateless and so there is no need to install fencing agents.
 
 For information: the install of the above software will see the creation of three accounts:
-```
+```diff
 % tail -3 /etc/passwd
-tss:x:59:59:Account used by the trousers package to sandbox the tcsd daemon:/dev/null:/sbin/nologin
-hacluster:x:189:189:cluster user:/home/hacluster:/sbin/nologin
-mysqlrouter:x:995:991:MySQL Router:/var/lib/mysqlrouter:/bin/false
+- tss:x:59:59:Account used by the trousers package to sandbox the tcsd daemon:/dev/null:/sbin/nologin
+- hacluster:x:189:189:cluster user:/home/hacluster:/sbin/nologin
+- mysqlrouter:x:995:991:MySQL Router:/var/lib/mysqlrouter:/bin/false
 %
 ```
 
@@ -76,7 +76,7 @@ In order for application servers and other clients to connect to a MySQL Router 
 Pacemaker needs to communicate between the nodes using a variety of ports for both TCP and UDP protocols. Fortunately, Pacemaker is a well known package and the Linux firewall can be opened appropriately if the high-availability service is specified. Using this service rather than specifying ports should also insulate as from any changes to ports that might come about as a result of an upgrade, etc. The list of ports that will be opened for Enterprise Linux 7 (i.e. RedHat, Centos, Oracle Linux, etc.) can be found here: https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/high_availability_add-on_reference/s1-firewalls-haar). 
 
 On each node of the MySQL Router tier run the following commands:
-```
+```diff
 % sudo firewall-cmd --zone=public --add-port=6446/tcp --permanent
 % sudo firewall-cmd --zone=public --add-port=6447/tcp --permanent
 % sudo firewall-cmd --zone=public --add-port=64460/tcp --permanent
@@ -84,9 +84,9 @@ On each node of the MySQL Router tier run the following commands:
 % sudo firewall-cmd --permanent --add-service=high-availability
 % sudo systemctl restart firewalld
 % sudo firewall-cmd --list-ports
-6446/tcp 64460/tcp 6447/tcp 64470/tcp
+- 6446/tcp 64460/tcp 6447/tcp 64470/tcp
 % sudo firewall-cmd --list-services
-dhcpv6-client high-availability ssh
+- dhcpv6-client high-availability ssh
 %
 ```
 The last two commands confirm that the ports have been opened for MySQL Router and that the high-availability service is in place.
@@ -111,9 +111,9 @@ To test MySQL Router connectivity with the backend database tier, the database t
  * create a user and grant that user select, insert, update and delete on both the schema and database. Note the user should be able to log in from anywhere.
 
 For example:
-```
+```diff
 % hostname
-ic1
+- ic1
 % mysqlsh
  MySQL  JS > \c root@localhost
  MySQL  localhost:33060+ ssl  JS > var schema = session.createSchema('ancestors')
@@ -134,7 +134,7 @@ ic1
 
 On **each node** of the **MySQL Router tier**, perform these tests
 ```diff
-- Using MySQL shell as a local client connect to the database using each of the MySQL Router ports: 6446 (SQL RW), 6447 (SQL RO), 64460 (X protocol RW), 66470 (X protocol RO)
++ Using MySQL shell as a local client connect to the database using each of the MySQL Router ports: 6446 (SQL RW), 6447 (SQL RO), 64460 (X protocol RW), 66470 (X protocol RO)
 % hostname
 - rt1
 % mysqlsh --uri stuart@localhost:6446         # Change port to 6447, 64460 and 64470 as required
@@ -210,7 +210,7 @@ On **each node** of the **MySQL Router tier**, perform these tests
 **Initial Setup of the Pacemaker Cluster**:
 
 Set the password for the hacluster user account **on each of the MySQL Router nodes**:
-```
+```diff
 % sudo passwd hacluster
 - New password: 
 - Retype new password:
@@ -267,7 +267,7 @@ With the pcsd service now running on each node, the cluster can be created. To b
 %
 ```
 Give the cluster ~30 seconds to establish itself and then check its status. All the nodes must be online. 
-```
+```diff
 % sudo pcs status
 - Cluster name: mysqlroutercluster
 
@@ -327,7 +327,7 @@ For our purposes we want to failover (so 0 is a wrong value) and we want the fai
 
 Stop failures are slightly different and crucial. If a resource fails to stop and STONITH is enabled, then the cluster will fence the node in order to be able to start the resource elsewhere. If STONITH is not enabled, then the cluster has no way to continue and will not try to start the resource elsewhere, but will try to stop it again after the failure timeout.
 
-	For the MySQL Router Tier there is no session state and so there is no need to worry about fencing and split brain. Therefore, STONITH can be disabled.
+For the MySQL Router Tier there is no session state and so there is no need to worry about fencing and split brain. Therefore, STONITH can be disabled.
 
 **Assigning Resources to the Pacemaker Cluster**:
 
