@@ -212,9 +212,9 @@ On **each node** of the **MySQL Router tier**, perform these tests
 Set the password for the hacluster user account **on each of the MySQL Router nodes**:
 ```diff
 % sudo passwd hacluster
-- New password: 
-- Retype new password:
-passwd: all authentication tokens updated successfully.
+ New password: 
+ Retype new password:
+- passwd: all authentication tokens updated successfully.
 ```
 In the example above the password used was MyPa55wd! - this will be used by Pacemaker to authenticate the nodes to the cluster and each other (see below).
 
