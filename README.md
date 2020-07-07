@@ -513,10 +513,67 @@ On the client machine run mysqlsh and perform a similar set of tests to those us
 + Now repeat the above using the remaining ports, e.g. mysqlsh --uri stuart@10.0.0.101:6447
 ```
 
-## Additional Work Required for the Oracle Cloud
-**Problem statement**: when the active node fails over to a passive node, the floating IP address must be moved to this passive node in order for it to become the new active node. Pacemaker detects a failover event and makes changes to the new active node's IP stack to bring up the floating IP **but** Oracle virtual networking is reluctant to reassign the floating IP address to the new active node. This understandable and in normal circumstances desirable because it prevents an IP address being used on two interfaces in the same subnet. However, it's not helpful in the case of reassigning a floating IP.
+The above tests demonstrate that a client can connect to the clustered MySQL Router tier which in turn connects to the clustered MySQL Database tier.
 
-**Solution**: explicitly instruct Oracle virtual network to remove the floating IP address from the failed node and reassign it to the new active node. The Pacemaker stack install provides an Open Cluster Framework Resource Agent script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, whose purpose is to provide an interface to manage IP resources and we can use this to instruct the Oracle virtual network to behave as we want.
+Now do some simple failover tests.
+
+Setup monitoring on one router node (i.e. use crm_mon as before). 
+
+On the client log into MySQL database tier via the router tier. Toggle to SQL mode and run queries against the routertest database:
+
+```diff
+% hostname
+- client
+% mysqlsh --uri stuart@10.0.0.101:6446      
+- Please provide the password for 'stuart@10.0.0.101:6446': *********
+ MySQL  10.0.0.101:6446 ssl  JS > \sql
+ MySQL  10.0.0.101:6446 ssl  SQL > use routertest; 
+ MySQL  10.0.0.101:6446 ssl  routertest  SQL > select * from t1 limit 2;
+- +----+---------+
+- | id | name    |
+- +----+---------+
+- |  1 | Stuart  |
+- |  2 | William |
+- +----+---------+
+- 2 rows in set (0.0005 sec)
+ MySQL  10.0.0.101:6446 ssl  routertest  SQL >
+```
+
+Log into a node on the router tier and failover the floating IP address (i.e. sudo pcs resource move Router_VIP rt1 or rt2 or rt3). Continue to run the above query in the MySQL shell session. You should see output like this after a failover of the floating IP address:
+
+```diff
+ MySQL  10.0.0.101:64460+ ssl  routertest  SQL > select * from t1 limit 2;
+- +----+---------+
+- | id | name    |
+- +----+---------+
+- |  1 | Stuart  |
+- |  2 | William |
+- +----+---------+
+- 2 rows in set (0.0008 sec)
+ MySQL  10.0.0.101:64460+ ssl  routertest  SQL > select * from t1 limit 2;
+- ERROR: 2006: MySQL server has gone away
+- The global session got disconnected..
+- Attempting to reconnect to 'mysqlx://stuart@10.0.0.101:64460'..
+- The global session was successfully reconnected.
+ MySQL  10.0.0.101:64460+ ssl  routertest  SQL > select * from t1 limit 2;
+- +----+---------+
+- | id | name    |
+- +----+---------+
+- |  1 | Stuart  |
+- |  2 | William |
+- +----+---------+
+- 2 rows in set (0.0011 sec)
+ MySQL  10.0.0.101:64460+ ssl  routertest  SQL > 
+```
+
+Notice how on failover of the IP the client loses connection but automatically reconnects allowing the query to be rerun. From this we can conclude that a Pacemaker Cluster does provide a highly available tier for MySQL Router. 
+
+### Basic Application Server Testing
+
+## Additional Work Required for the Oracle Cloud
+**Problem statement**: when the active node fails over to a passive node, the floating IP address must be moved to this passive node in order for it to become the new active node. Pacemaker detects a failover event and makes changes to the new active node's IP stack to bring up the floating IP **but** Oracle virtual networking is reluctant to reassign the floating IP address to the new active node. This is understandable and in normal circumstances desirable because it prevents the same IP address being used on two or more interfaces in the same subnet. However, it's not helpful in the case of reassigning a floating IP.
+
+**Solution**: explicitly instruct Oracle virtual networking to remove the floating IP address from the failed node and reassign it to the new active node. The Pacemaker stack install provides an Open Cluster Framework Resource Agent script, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, whose purpose is to provide an interface to manage IP resources and we can use this to instruct the Oracle virtual network to behave as we want.
 
 **Implementation**: install Oracle Cloud Infrastructure (OCI) Command Line Interface (CLI) utility on each node in order to provide a script interface to the Oracle Cloud so that when a failover event triggers the script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, can make a call to OCI which will reassign the floating IP address.
 
