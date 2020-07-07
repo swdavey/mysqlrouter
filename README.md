@@ -294,7 +294,7 @@ Give the cluster ~30 seconds to establish itself and then check its status. All 
 %
 ```
 Some points to note:
-* The cluster can be monitored from any node using either the status command as shown or crm_mon. If crm_mon is run then it will act as a console and continue to be updated. An alternative usage is to specify the number of times you want it to sample before exiting. For example to take a snapshot you would specify "one" as follows: crm_mon -1
+* The cluster can be monitored from any node using either the status command as shown or **crm_mon**. If crm_mon is run then it will act as a console and continue to be updated. An alternative usage is to specify the number of times you want it to sample before exiting. For example to take a snapshot you would specify "one" as follows: crm_mon -1
 * From the above status output we can see that 
   * We have warnings with respect to stonith (Shoot The Other Node In The Head - used for split brain) and these will need to be addressed. 
   * Quorum is in place, however, for our cluster we need to change the default behaviour when quorum is lost. 
@@ -340,7 +340,7 @@ With respect to the Router_VIP the following information is required:
 * The name of the interface that the Router_VIP will be assigned to:
   * This is meant to be optional but in the environment being tested it seemed to be required (this may be a feature of a virtualized environment)
   * If the nic is specified, then it needs to be the same on each node in the cluster. 
-  * To get the nic name run **ip addr** and select accordingly.
+  * To get the nic name run the linux command **ip addr** and select accordingly.
 * An approrpriate interval in seconds. 
 
 The mysqlrouter resource is managed through systemd. In the command to add this resource (see below) a **clone** parameter is used which indicates that MySQL Router will run on all nodes of the cluster.
@@ -389,39 +389,44 @@ The following tests were conducted to prove the worth of the cluster:
 
 **Solution**: explicitly instruct Oracle virtual network to remove the floating IP address from the failed node and reassign it to the new active node. The Pacemaker stack install provides an Open Cluster Framework Resource Agent script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, whose purpose is to provide an interface to manage IP resources. 
 
-**Implementation**: install Oracle Cloud Infrastructure (OCI) Command Line Interface (CLI) utility on each node in order to provide a script interface to the Oracle Cloud so that when a failover event triggers the script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, we can make a call to OCI that will reassign the IP address.
+**Implementation**: install Oracle Cloud Infrastructure (OCI) Command Line Interface (CLI) utility on each node in order to provide a script interface to the Oracle Cloud so that when a failover event triggers the script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, can make a call to OCI which will reassign the floating IP address.
 
-To install and configure the OCI CLI follow the procedure detailed here: https://docs.cloud.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm
+To install and configure the OCI CLI follow the procedure detailed here: https://docs.cloud.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm. The OCL CLI must be installed on each node of the cluster
 
-Before you can edit /usr/lib/ocf/resource.d/heartbeat/IPaddr2 you will need to obtain the following information:
-1. The name of the VNIC which will be used to host the floating IP address. This is typically ens3, but you should check using ip addr (on each node in the cluster!).
-2. The OCID of the VNIC. Log into the OCI Console, then for each node navigate to VNIC Details (Compute > Instances > Instance Details > Attached VNICs > VNIC Details). Copy the VNIC's OCID value.
+Before you can edit /usr/lib/ocf/resource.d/heartbeat/IPaddr2 you will need to obtain the OCID for the (virtual) nic which will host the floating IP. This can be found by logging into the OCI console and then navigating to VNIC Details (i.e. Compute > Instances > Instance Details > Attached VNICs > VNIC Details).
 
-Once installed and configured you will need to add the following lines of code to /usr/lib/ocf/resource.d/heartbeat/IPaddr2. These lines were added immediately under the header comments (line 65 to be precise):
-```sh
-##### OCI vNIC variables
-SERVER=`hostname -s`
-RT1_VNIC="ocid1.vnic.oc1.uk-london-1.abwgiljsbwszs6e....................................3qgawid6q"
-RT2_VNIC="ocid1.vnic.oc1.uk-london-1.abwgiljschdlc72....................................7gga2xunq"
-RT3_VNIC="ocid1.vnic.oc1.uk-london-1.abwgiljsxjhqmiw....................................p7tt22iwa"
-FLOATING_IP="10.0.0.101"
+Once you have the VNIC's OCID insert the following lines of code into /usr/lib/ocf/resource.d/heartbeat/IPaddr2 immediately under the header comments (line 64 in the file):
+
+```
 ##### OCI/IPaddr Integration
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+/root/bin/oci network vnic assign-private-ip --unassign-if-already-assigned --vnic-id "ocid1.vnic.oc1.uk-london-1.abcd...va" --ip-address "10.0.0.101"
+```
+Some points to note:
+* Do the above edit on each node of the cluster, keeping the floating IP address the same and changing the vnic-id to suit the host.
+* Explicitly setting the locale variables to C.UTF-8 overcomes any issues with Python 3 (which the OCI CLI uses).
+* The path to the OCI executable (shown as /root/bin/oci) may vary depending upon your install.
+
+A quick scan of the web will find other versions of this OCI/Pacemaker solution. Typically the update to the script they detail looks similar to this:
+
+```sh
+##### OCI/IPaddr Integration
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+SERVER=`hostname -s`
+RT1_VNIC="ocid1.vnic.oc1.uk-london-1.abcd...va"
+RT2_VNIC="ocid1.vnic.oc1.uk-london-1.abcd...nq"
+RT3_VNIC="ocid1.vnic.oc1.uk-london-1.abcd...wa"
+FLOATING_IP="10.0.0.101"
 if [ $SERVER = "rt1" ]; then
         /root/bin/oci network vnic assign-private-ip --unassign-if-already-assigned --vnic-id $RT1_VNIC --ip-address $FLOATING_IP
 elif [ $SERVER = "rt2" ]; then
         /root/bin/oci network vnic assign-private-ip --unassign-if-already-assigned --vnic-id $RT2_VNIC --ip-address $FLOATING_IP
-elif [ $SERVER = "rt3" ]; then
+else
         /root/bin/oci network vnic assign-private-ip --unassign-if-already-assigned --vnic-id $RT3_VNIC --ip-address $FLOATING_IP
 fi
 ```
+This version can be written once and then deployed unchanged to each node. Some may consider this consistent approach an advantage. However, if you follow the logic of the script you will see that a lot of redundant code is being added. That said, either approach is valid; it's up to you to decide which you use.
 
-The same code can be written to /usr/lib/ocf/resource.d/heartbeat/IPaddr2 across all nodes without change. However, much of the code will never be accessed because the if statement on each server will always select just one line of code to be executed. As such, all that is needed is the /root/bin/oci... line with the requisite vnic-id value for the node it is being executed on.
-
-**Further Issue**: the above OCI CLI / IPaddr2 solution worked as detailed above. However, on a subsequent implementation with a slightly later kernel implementation and newer version of OCI CLI (old version 2.12.0, new 2.12.1) it ceased to work. The problem was traced to Python 3 not being happy with the locale. The fix to this issue was to explicitly set the locale in the /usr/lib/ocf/resource.d/heartbeat/IPaddr2 script. At line 65:
-```sh
-export LC_ALL=C.UTF-8
-export LANG=C.UTF-8
-##### OCI vNIC variables
-SERVER=`hostname -s`
-```
-Once this was done, normal service was resumed.
+Once /usr/lib/ocf/resource.d/heartbeat/IPaddr2 has been update on each node, the cluster will be ready for use.
