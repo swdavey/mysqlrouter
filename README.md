@@ -428,6 +428,7 @@ Log into one of the router nodes and move the Router_VIP from one node to the ne
 + and another
 % sudo pcs resource move Router_VIP rt3
 ```
+
 The failover time will be approximately 5s. Watch the crm_mon output report the new location of the Router_VIP (i.e. Started rt1 will change to Started rt2 assuming the move to rt2 has been requested). Also watch the ping: it will pause whilst the failover is in place and then resume.
 
 ### Basic MySQL Connectivity and Failover Tests
@@ -435,6 +436,7 @@ The purpose of these tests is to prove connectivity to the MySQL Router applicat
 
 On the client machine run mysqlsh and perform a similar set of tests to those used when the router installs were being tested (see above). Note that the connection URL uses the MySQL account created earlier and the floating IP as an address.  
 
+```diff
 % hostname
 - client
 % mysqlsh --uri stuart@10.0.0.101:6446         # Change port to 6447, 64460 and 64470 as required
