@@ -514,9 +514,9 @@ On the client machine run mysqlsh and perform a similar set of tests to those us
 ```
 
 ## Additional Work Required for the Oracle Cloud
-**Problem statement**: when the active node fails over to a passive node, the floating IP address must be moved to this passive node in order for it to become the new active node. Pacemaker understands that this is required but Oracle virtual networking is reluctant to reassign the floating IP address to the new active node. This understandable because in normal circumstances it is not desirable to have the potential of two or more interfaces on the same network using the same IP address.
+**Problem statement**: when the active node fails over to a passive node, the floating IP address must be moved to this passive node in order for it to become the new active node. Pacemaker detects a failover event and makes changes to the new active node's IP stack to bring up the floating IP **but** Oracle virtual networking is reluctant to reassign the floating IP address to the new active node. This understandable and in normal circumstances desirable because it prevents an IP address being used on two interfaces in the same subnet. However, it's not helpful in the case of reassigning a floating IP.
 
-**Solution**: explicitly instruct Oracle virtual network to remove the floating IP address from the failed node and reassign it to the new active node. The Pacemaker stack install provides an Open Cluster Framework Resource Agent script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, whose purpose is to provide an interface to manage IP resources. 
+**Solution**: explicitly instruct Oracle virtual network to remove the floating IP address from the failed node and reassign it to the new active node. The Pacemaker stack install provides an Open Cluster Framework Resource Agent script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, whose purpose is to provide an interface to manage IP resources and we can use this to instruct the Oracle virtual network to behave as we want.
 
 **Implementation**: install Oracle Cloud Infrastructure (OCI) Command Line Interface (CLI) utility on each node in order to provide a script interface to the Oracle Cloud so that when a failover event triggers the script file, /usr/lib/ocf/resource.d/heartbeat/IPaddr2, can make a call to OCI which will reassign the floating IP address.
 
