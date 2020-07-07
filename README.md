@@ -373,16 +373,57 @@ Note: if you are deploying in the Oracle Cloud you will need to do some addition
 
 ## Testing
 The following tests were conducted to prove the worth of the cluster:
-* Basic Ping Testing
-* Simple Failover Testing
+* Basic Ping and Failover Testing
 * MySQL Shell Client Testing
 * Basic Application Server Testing
-* Failover Testing
+* More Advanced Failover Testing
   * Contolled failover
   * Stopping MySQL Router on active node, failing over and recovery
   * Crashing the active node, failing over and recovery
 
 ### Basic Ping Testing
+On a machine that is not part of the cluster (e.g. the client in the topology shown above) ping the floating IP address.
+```diff
+% hostname
+- client
+% ping 10.0.0.101
+- PING 10.0.0.101 (10.0.0.101) 56(84) bytes of data.
+- 64 bytes from 10.0.0.101: icmp_seq=1 ttl=64 time=0.280 ms
+- 64 bytes from 10.0.0.101: icmp_seq=2 ttl=64 time=0.090 ms
+- 64 bytes from 10.0.0.101: icmp_seq=3 ttl=64 time=0.106 ms
+...
+Log into one of the nodes in the cluster and set up continuous monitoring
+```diff
+% hostname
+- rt2
+% sudo crm_mon
+- Stack: corosync
+- Current DC: rt1 (version 1.1.21-4.el7-f14e36fd43) - partition with quorum
+- Last updated: Tue Jul  7 11:01:16 2020
+- Last change: Tue Jul  7 09:11:47 2020 by root via crm_resource on rt2
+
+- 3 nodes configured
+- 4 resources configured
+
+- Online: [ rt1 rt2 rt3 ]
+
+- Active resources:
+
+- Router_VIP      (ocf::heartbeat:IPaddr2):       Started rt1
+-  Clone Set: mysqlrouter-clone [mysqlrouter]
+-      Started: [ rt1 rt2 rt3 ]
+```
+Now move the Router_VIP from one node to the next. The failover time will be approximately 5s. Watch the crm_mon output report the new location of the Router_VIP (i.e. Started rt1 will change to Started rt2 assuming the move to rt2 has been requested). Also watch the ping - it will pause whilst the failover is in place and then resume. To move the Router_VIP log into one of the nodes of the cluster and run the pcs command as shown
+```diff
+% hostname
+- rt1
+% sudo pcs resource move Router_VIP rt2
+%
++ now move to another node
+% sudo pcs resource move Router_VIP rt1
++ and another
+% sudo pcs resource move Router_VIP rt3
+```
 
 ## Additional Work Required for the Oracle Cloud
 **Problem statement**: when the active node fails over to a passive node, the floating IP address must be moved to this passive node in order for it to become the new active node. Pacemaker understands that this is required but Oracle virtual networking is reluctant to reassign the floating IP address to the new active node. This understandable because in normal circumstances it is not desirable to have the potential of two or more interfaces on the same network using the same IP address.
@@ -408,7 +449,7 @@ Some points to note:
 * Explicitly setting the locale variables to C.UTF-8 overcomes any issues with Python 3 (which the OCI CLI uses).
 * The path to the OCI executable (shown as /root/bin/oci) may vary depending upon your install.
 
-A quick scan of the web will find other versions of this OCI/Pacemaker solution. Typically the update to the script they detail looks similar to this:
+A quick scan of the web will find other versions of this OCI/Pacemaker solution. Typically the update to /usr/lib/ocf/resource.d/heartbeat/IPaddr2 they detail looks similar to the following rather than the 3 lines of code shown above:
 
 ```sh
 ##### OCI/IPaddr Integration
