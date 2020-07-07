@@ -348,10 +348,12 @@ The mysqlrouter resource is managed through systemd. In the command to add this 
 ```
 % sudo pcs resource create Router_VIP ocf:heartbeat:IPaddr2 ip=10.0.0.101 cidr_netmask=16 nic=ens3 op monitor interval=5s
 % sudo pcs resource create mysqlrouter systemd:mysqlrouter clone
+%
 ```
 Once these resources have been added they will be colocated such that the floating IP must be present on the node running MySQL Router:
 ```
 % sudo pcs constraint colocation add Router_VIP with mysqlrouter-clone score=INFINITY
+%
 ```
 The **score=INFINITY** parameter and value indicates that the source_resource, Router_VIP, must run on the same node as the target_resource, mysqlrouter.
 
@@ -361,6 +363,7 @@ Make sure each node of the cluster will restart when booted. **On every node**:
 ```
 % sudo systemctl enable pacemaker
 % sudo systemctl enable corosync
+%
 ```
 
 In order to make the cluster ready all that is needed is to restart it. **On one node**:
@@ -391,7 +394,8 @@ On a machine that is not part of the cluster (e.g. the client in the topology sh
 - 64 bytes from 10.0.0.101: icmp_seq=1 ttl=64 time=0.280 ms
 - 64 bytes from 10.0.0.101: icmp_seq=2 ttl=64 time=0.090 ms
 - 64 bytes from 10.0.0.101: icmp_seq=3 ttl=64 time=0.106 ms
-...
+```
+
 Log into one of the nodes in the cluster and set up continuous monitoring
 ```diff
 % hostname
@@ -413,6 +417,7 @@ Log into one of the nodes in the cluster and set up continuous monitoring
 -  Clone Set: mysqlrouter-clone [mysqlrouter]
 -      Started: [ rt1 rt2 rt3 ]
 ```
+
 Now move the Router_VIP from one node to the next. The failover time will be approximately 5s. Watch the crm_mon output report the new location of the Router_VIP (i.e. Started rt1 will change to Started rt2 assuming the move to rt2 has been requested). Also watch the ping - it will pause whilst the failover is in place and then resume. To move the Router_VIP log into one of the nodes of the cluster and run the pcs command as shown
 ```diff
 % hostname
