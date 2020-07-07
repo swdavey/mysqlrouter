@@ -348,12 +348,10 @@ The mysqlrouter resource is managed through systemd. In the command to add this 
 ```
 % sudo pcs resource create Router_VIP ocf:heartbeat:IPaddr2 ip=10.0.0.101 cidr_netmask=16 nic=ens3 op monitor interval=5s
 % sudo pcs resource create mysqlrouter systemd:mysqlrouter clone
-%
 ```
 Once these resources have been added they will be colocated such that the floating IP must be present on the node running MySQL Router:
 ```
 % sudo pcs constraint colocation add Router_VIP with mysqlrouter-clone score=INFINITY
-%
 ```
 The **score=INFINITY** parameter and value indicates that the source_resource, Router_VIP, must run on the same node as the target_resource, mysqlrouter.
 
@@ -363,7 +361,6 @@ Make sure each node of the cluster will restart when booted. **On every node**:
 ```
 % sudo systemctl enable pacemaker
 % sudo systemctl enable corosync
-%
 ```
 
 In order to make the cluster ready all that is needed is to restart it. **On one node**:
@@ -377,14 +374,15 @@ Note: if you are deploying in the Oracle Cloud you will need to do some addition
 ## Testing
 The following tests were conducted to prove the worth of the cluster:
 * Basic Ping and Failover Testing
-* MySQL Shell Client Testing
+* Basic MySQL Connectivity and Failover Testing
 * Basic Application Server Testing
 * More Advanced Failover Testing
-  * Contolled failover
-  * Stopping MySQL Router on active node, failing over and recovery
+  * Killing MySQL Router on active node, failing over and recovery
   * Crashing the active node, failing over and recovery
 
-### Basic Ping Testing
+### Basic Ping and Failover Testing
+The purpose of these tests is to prove that the MySQL Router machines can be connected to via the floating IP and that the floating IP correctly fails over.
+
 On a machine that is not part of the cluster (e.g. the client in the topology shown above) ping the floating IP address.
 ```diff
 % hostname
@@ -418,16 +416,98 @@ Log into one of the nodes in the cluster and set up continuous monitoring
 -      Started: [ rt1 rt2 rt3 ]
 ```
 
-Now move the Router_VIP from one node to the next. The failover time will be approximately 5s. Watch the crm_mon output report the new location of the Router_VIP (i.e. Started rt1 will change to Started rt2 assuming the move to rt2 has been requested). Also watch the ping - it will pause whilst the failover is in place and then resume. To move the Router_VIP log into one of the nodes of the cluster and run the pcs command as shown
+Log into one of the router nodes and move the Router_VIP from one node to the next: 
+
 ```diff
 % hostname
 - rt1
 % sudo pcs resource move Router_VIP rt2
-%
 + now move to another node
 % sudo pcs resource move Router_VIP rt1
 + and another
 % sudo pcs resource move Router_VIP rt3
+```
+The failover time will be approximately 5s. Watch the crm_mon output report the new location of the Router_VIP (i.e. Started rt1 will change to Started rt2 assuming the move to rt2 has been requested). Also watch the ping: it will pause whilst the failover is in place and then resume.
+
+### Basic MySQL Connectivity and Failover Tests
+The purpose of these tests is to prove connectivity to the MySQL Router application via the floating IP and that requests continue to be serviced after a failover event.
+
+On the client machine run mysqlsh and perform a similar set of tests to those used when the router installs were being tested (see above). Note that the connection URL uses the MySQL account created earlier and the floating IP as an address.  
+
+% hostname
+- client
+% mysqlsh --uri stuart@10.0.0.101:6446         # Change port to 6447, 64460 and 64470 as required
+- Please provide the password for 'stuart@10.0.0.101:6446': *********
+  MySQL  10.0.0.101:6446 ssl  JS >
+
++ Test 1: Toggle to SQL and check which node of the InnoDB Cluster we are connected to. 
++         For connections on ports 6446 and 64460 we should be on the Primary node (RW)
++         For connections on ports 6447 and 64470 we should be on one of the Secondary nodes (RO)
+ MySQL  10.0.0.101:6446 ssl  JS > \sql
+- Switching to SQL mode...
+ MySQL  10.0.0.101:6446 ssl  SQL > select @@hostname;
+- +------------+
+- | @@hostname |
+- +------------+
+- | ic1        |
+- +------------+
+- 1 row in set (0.0002 sec)
+ MySQL  10.0.0.101:6446 ssl  SQL >
+ 
++ Test 2: Toggle to JavaScript and check whether you can connect to Document Store.
++         Only connections on the X Protocol ports 64460 and 64470 should be allowed connections
++         Connections on classic SQL ports (6446 and 6447) will receive error messages
+ MySQL  10.0.0.101:6446 ssl  SQL > \js
+- Switching to JavaScript mode...
+ MySQL  10.0.0.101:6446 ssl  JS > var schema = session.getSchema("ancestors")
+- Invalid object member getSchema (AttributeError)
+ MySQL  10.0.0.101:6446 ssl  JS >
+ 
++ Test 3: If the schema object was obtained in test 2, access its collection and then add a document to it.
++         This cannot be done for connections on classic SQL ports (6446 and 6447) given they won't have been able to create the schema object.
++         This test will work in its entirety for connections on 64460 because they are read-write. 
++         Connections on port 64470 will only be able to do the query part (i.e. the find()) because connections on this port are read-only
+ MySQL  10.0.0.101:64460+ ssl  JS > var collection = schema.getCollection("flintstones")
+ MySQL  10.0.0.101:64460+ ssl  JS > collection.add({"name": "Barney", "type": "Early Human"})
+- Query OK, 1 item affected (0.0062 sec)
+ MySQL  10.0.0.101:64460+ ssl  JS > collection.find()
+- {
+-     "_id": "00005ef4b9130000000000000001",
+-     "name": "Fred",
+-     "type": "Early Human"
+- }
+- {
+-    "_id": "00005ef4b9130000000000000003",
+-    "name": "Barney",
+-    "type": "Early Human"
+- }
+- 2 documents in set (0.0009 sec)
+ MySQL  10.0.0.101:64460+ ssl  JS >
+
++ Test 4: Toggle to SQL mode and use the routertest database
++         This will work for all port types
+ MySQL  10.0.0.101:6446 ssl  JS > \sql
+ MySQL  10.0.0.101:6446 ssl  SQL > use routertest;
+- Default schema set to `routertest`.
+- Fetching table and column names from `routertest` for auto-completion... Press ^C to stop.
+ MySQL  10.0.0.101:6446 ssl  routertest  SQL >
+ 
++ Test 5: Insert a row to routertest's table, then query it
++         This test will work in its entirety for connections using ports 6446 and 64460 because they are read-write
++         Connections using ports 6447 and 64470 will not be able to do the insert but will be able to do the query because they are read-only
+ MySQL  10.0.0.101:6446 ssl  routertest  SQL > insert into t1 (name) values ("William");
+- Query OK, 1 row affected (0.0058 sec)
+ MySQL  10.0.0.101:6446 ssl  routertest  SQL > select * from t1;
+- +----+---------+
+- | id | name    |
+- +----+---------+
+- |  1 | Stuart  |
+- |  2 | William |
+- +----+---------+
+- 2 rows in set (0.0005 sec)
+ MySQL  10.0.0.101:6446 ssl  routertest  SQL > \q
+
++ Now repeat the above using the remaining ports, e.g. mysqlsh --uri stuart@10.0.0.101:6447
 ```
 
 ## Additional Work Required for the Oracle Cloud
