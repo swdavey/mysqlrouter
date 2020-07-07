@@ -133,6 +133,7 @@ For example:
 ```
 
 On **each node** of the **MySQL Router tier**, perform these tests
+
 ```diff
 + Using MySQL shell as a local client connect to the database using each of the MySQL Router ports: 6446 (SQL RW), 6447 (SQL RO), 64460 (X protocol RW), 66470 (X protocol RO)
 % hostname
