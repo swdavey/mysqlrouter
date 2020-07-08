@@ -9,22 +9,22 @@ To overcome the issue of deploying MySQL Router on large numbers of application 
 
 One method, documented by MySQL, is to use DNS-SRV records in conjuction with software such as Consul and dnsmasq. In production this is difficult to implement because it requires changes to DNS configurations and these are often resisted by network administrators.
 
-An alternative is to use standard clustering technologies and approaches. For example, software that: manages cluster membership; automatically fails over resources on error, and which utilizes a floating IP address such that clients have a consistent point of attachment. The remainder of this document details how this can be achieved on Linux servers using Pacemaker and Corosync which collectively form a standard Linux clustering solution. This document has three main sections:
+An alternative is to use standard clustering technologies and approaches. For example, software that: manages cluster membership; automatically fails over resources on error, and which utilizes a floating IP address such that clients have a consistent point of attachment. The Linux OS uses the Pacemaker and Corosync packages to create clusters of servers. The remaining sections of this document detail how these packages can be leveraged to produce a highly available mid-tier of MySQL Routers:
 
-1. Environment Overview
-2. Implementation of the HA MySQL Router Tier Solution
-3. Testing Undertaking
+1. Environment Overview - details the architectural topology used to implement and test the HA MySQL Router Tier
+2. Implementation of the HA MySQL Router Tier Solution - a how to guide
+3. Testing - to confirm the cluster works as envisaged
 
 In addition to these three sections there is an addendum which details a small amount of extra administration work in order to get the solution to work in the Oracle Cloud.
 
 ## Environment Overview
-The diagram below details the environment that was built in the Oracle Cloud to demonstrate how to setup and configure a highly-available clustered MySQL Router tier as well as to test the same.
+The diagram below details the environment that was built in the Oracle Cloud to demonstrate how to setup, configure and test a highly-available clustered MySQL Router tier.
 
 ![](../master/images/topology.png)
 
 **MySQL Router Tier stack:**
 
-A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. Each node was an Oracle Compute Instance (i.e. a Virtual Machine) with the following stack:
+Each node of the MySQL Router Tier was a similarly configured Compute Instance (i.e. an IaaS Virtual Machine) within the Oracle Cloud and had this stack:
 
   * Virtual machine specification: 1 core OCPU, 16 GB memory, 1 Gbps network bandwidth, nom 50GB storage
   * OS: Oracle Linux 7.8, kernel rev 4.14.35-1902.303.4.1.el7uek.x86_64
@@ -36,7 +36,7 @@ A three node HA Cluster of MySQL Router nodes was created in the Oracle Cloud. E
 Notes: 
 * Oracle Linux is a variant of Red Hat Enterprise Linux and as such it is expected that implementing a HA MySQL Router tier on either Red Hat, Centos or Fedora operating systems will work if configured in the same manner.
 * The Ubuntu OS also has a Pacemaker implementation and so it is assumed that this will also work.
-* Pacemaker and Corosync collectively work together to provide a highly available clustering solution which is managed through its **pcs** interface (Pacemaker/Corosync Configuration System). Given there are too many three lettered acronyms in the world and typing/reading Pacemaker and Corosync is hardwork, the cluster in this document will be referred to as Pacemaker. 
+* Pacemaker and Corosync collectively work together to provide a highly available clustering solution which is managed through its **pcs** interface (Pacemaker/Corosync Configuration System). Given there are too many three lettered acronyms in the world and typing/reading Pacemaker and Corosync is hardwork, this document will refer the cluster as *Pacemaker*. 
 * Oracle Cloud: a small amount of additional integration work was required in order for the solution to work with Oracle Cloud's virtual network. This is detailed at the end of this document. It is anticipated that **no additional work** would be required with physical servers. Depending on how virtual networking is implemented in other cloud there may be some similar work required. 
 
 ## Implementation of the MySQL Router Tier Solution
@@ -570,6 +570,8 @@ Notice how on failover of the IP the client loses connection but automatically r
 
 ### Basic Application Server Testing
 
+The 
+
 ## Additional Work Required for the Oracle Cloud
 **Problem statement**: when the active node fails over to a passive node, the floating IP address must be moved to this passive node in order for it to become the new active node. Pacemaker detects a failover event and makes changes to the new active node's IP stack to bring up the floating IP **but** Oracle virtual networking is reluctant to reassign the floating IP address to the new active node. This is understandable and in normal circumstances desirable because it prevents the same IP address being used on two or more interfaces in the same subnet. However, it's not helpful in the case of reassigning a floating IP.
 
@@ -583,7 +585,7 @@ Before you can edit /usr/lib/ocf/resource.d/heartbeat/IPaddr2 you will need to o
 
 Once you have the VNIC's OCID insert the following lines of code into /usr/lib/ocf/resource.d/heartbeat/IPaddr2 immediately under the header comments (line 64 in the file):
 
-```
+```sh
 ##### OCI/IPaddr Integration
 export LC_ALL=C.UTF-8
 export LANG=C.UTF-8
