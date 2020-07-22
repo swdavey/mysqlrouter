@@ -348,7 +348,7 @@ The mysqlrouter resource is managed through systemd. In the command to add this 
 
 ```
 % sudo pcs resource create Router_VIP ocf:heartbeat:IPaddr2 ip=10.0.0.101 cidr_netmask=16 nic=ens3 op monitor interval=5s
-% sudo pcs resource create mysqlrouter systemd:mysqlrouter clone
+% sudo pcs resource create mysqlrouter systemd:mysqlrouter op monitor interval=5s clone
 ```
 Once these resources have been added they will be colocated such that the floating IP must be present on the node running MySQL Router:
 ```
